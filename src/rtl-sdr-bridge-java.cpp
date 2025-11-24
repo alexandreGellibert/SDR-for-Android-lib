@@ -237,27 +237,26 @@ static int indexNoiseBuffer = 0 ;
 static float noiseSigmaMin = 100 ;
 static float noiseSigmaMax = 0 ;
 static float peakNormalizedMax = 0 ;
-static float kiki_calcul = 0 ;
+
 //Level 1 variables
 static std::vector<float> peakBuffer ;
 static std::vector<float> peakNormalizedBuffer ;
 static int peakRemanance = 5 ;
 static int indexPeakBuffer = 0 ;
-//Level 2 variables
-static std::vector<float> circularPowerDBnormalized ; // Used to stock power DB (not integrated) centered on 0
-static int indexCircularPowerDB = 0; // Circulate within circularPower
-const int integrationPowerPeriod = 21; // Number of loop tocked for power DB normalized work on !
-static int longueurTrace = 6 ; // Must be < at integrationPower period : circular
-static int previousIndexLvl2 = 666 ;
-static int lvl2_repet = 0 ;
-static int lvl2_repet_threshold =3 ;
-static float maxlvl2 = 0.0f ;
-//Level 3 variables
-int longueurTrace_zigzag = 13 ; //Must be < at integrationPower period : circular
-static int previousIndexLvl3 = 666 ;
-static int lvl3_repet = 0 ;
-static int lvl3_repet_threshold =5 ;
-static float maxlvl3 = 0.0f ;
+
+static int confirmation = 1 ;
+static int peakConfirmed = 0 ;
+
+static std::vector<float> thresholdBuffer(confirmation+1, 0.0f);
+static int indexThreshold = 0 ;
+
+static float maxThreshold = 0 ;
+static float maxThresholdConfirmed = 0 ;
+
+static float lvl1Ratio = 0.0f ;
+static int loopNB = 0 ;
+static int lvl1NB = 0 ;
+
 //SSB part
 static bool sensitivityBoost = true;
 static float gain = 1.2f;
@@ -636,16 +635,20 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
 
         //Do not take all the data to have some out of peak values
 
-        float pourcentage = 10.0f; // Par exemple, 10%
-        int indexOfPercentile = static_cast<int>(std::floor(static_cast<double>(WW_size) * (1 - pourcentage / 100)));
         int indexOfMedian = static_cast<int>(std::floor(static_cast<double>(WW_size) * 0.5)); //Middle ;)
         //LOGD("index = %d", index) ;
         std::sort(power_shifted_DB, power_shifted_DB + WW_size);
-        float noisePercentile = power_shifted_DB[indexOfPercentile] ;
+        //float noisePercentile = power_shifted_DB[indexOfPercentile] ;
         float noiseMedian= power_shifted_DB[indexOfMedian] ;
+        float gapTable[WW_size];
+        for (int i = 0; i < WW_size;i++){
+            gapTable[i] = std::fabs(power_shifted_DB[i] - noiseMedian) ;
+        }
+        std::sort(gapTable, gapTable + WW_size);
+
         //LOGD("valeur percentilebuffer = %f", percentileBuffer[indexPercentileBuffer]);
 
-        float noiseSigma = noisePercentile - noiseMedian ; //not really sigma but...
+        float noiseSigma = 1.4816 * gapTable[indexOfMedian] ;
 
         //-----
         //6.5 SIGNAL PEAK NORMALIZED MEASURE -
@@ -658,29 +661,40 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
         indexPeakBuffer = (indexPeakBuffer + 1) % peakRemanance;
 
         //TEMP CODE FOR NOISe ANALYSIS
-        if (noiseSigma<noiseSigmaMin){
-            noiseSigmaMin = noiseSigma ;
-        }
-        if (noiseSigma>noiseSigmaMax){
-            noiseSigmaMax = noiseSigma ;
-        }
+        //if (noiseSigma<noiseSigmaMin){
+        //    noiseSigmaMin = noiseSigma ;
+        //}
+        //if (noiseSigma>noiseSigmaMax){
+        //    noiseSigmaMax = noiseSigma ;
+        //}
+
+        // PUT THRESHOLD CALCULATED IN BUFFER
+        thresholdBuffer[indexThreshold]= peakNormalized/noiseSigma;
+
+        // CALCULATE peakNormMax
         if(peakNormalized>peakNormalizedMax){
             peakNormalizedMax = peakNormalized ;
         }
-        if (peakNormalized/noiseSigma>kiki_calcul){
-            kiki_calcul = peakNormalized/noiseSigma ;
+
+        // CALCULATE MAX THRESHOLD
+        if (thresholdBuffer[indexThreshold]>maxThreshold){
+            maxThreshold = thresholdBuffer[indexThreshold];
         }
 
+        // CALCULATE MAX CONFIRMED THRESHOLD
+        float minVal = *min_element(thresholdBuffer.begin(), thresholdBuffer.end());
+        if (minVal>maxThresholdConfirmed){
+            maxThresholdConfirmed = minVal ;
+        }
+
+        indexThreshold = (indexThreshold + 1) % (confirmation+1);
+
         //CHECK
-        if (integrationCount % 15 == 0) {
-            LOGD("noiseSigma min = %f", noiseSigmaMin);
-            LOGD("noiseSigma max = %f", noiseSigmaMax);
-            LOGD("peakNormalized max = %f", peakNormalizedMax);
-            LOGD("kiki_calcul = %f", kiki_calcul);
-            peakNormalizedMax = 0.0f ;
-            noiseSigmaMax = 0.0f ;
-            noiseSigmaMin = 100.0f ;
-            kiki_calcul = 0.0f ;
+        if (integrationCount % 300 == 0) {
+            LOGD("le seuil max est = %f", maxThreshold);
+            LOGD("le seuil max CONFIRMED est = %f", maxThresholdConfirmed);
+            maxThreshold = 0 ;
+            maxThresholdConfirmed = 0 ;
         }
 
         //-----
@@ -702,19 +716,41 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
         //-----
         //init of Signal Strength
         int signalEval = 0 ;
+        loopNB = loopNB + 1 ;
+
 
         //First condition for signal strong
         if (peakDb > noiseMedian + 3.0 * noiseSigma) {
-            if (peakDb>maxPeakAndFrequency[0]) {
-                maxPeakAndFrequency[0] = peakDb ;
-                maxPeakAndFrequency[1] = index_peak * freqPerBin +lowerWWBound; //définir les règles de l'autocalibration !!!
-                timeOfLastMaxPeak = std::chrono::steady_clock::now();
-                LOGD("Level 1 déclenche. frequence = %f", trackingFrequency);
+            if (peakConfirmed >= confirmation) {
+                if (peakDb > maxPeakAndFrequency[0]) {
+                    maxPeakAndFrequency[0] = peakDb;
+                    maxPeakAndFrequency[1] = index_peak * freqPerBin +
+                                             lowerWWBound; //définir les règles de l'autocalibration !!!
+                    timeOfLastMaxPeak = std::chrono::steady_clock::now();
+                    LOGD("Level 1 déclenche. frequence = %f", trackingFrequency);
+                }
+                signalEval = signalStrong + 1;
+                LOGD("Level 1 déclenche. peak = %f", peakDb);
+                lvl1NB = lvl1NB + 1;
+                lvl1Ratio = float(lvl1NB) / float(loopNB);
+                //LOGD("Level 1 déclenche. valeur noiseMedian = %f", noiseMedian);
+                //LOGD("Level 1 déclenche. valeur noiseSigma = %f", noiseSigma);
             }
-            signalEval = signalStrong + 1 ;
-            LOGD("Level 1 déclenche. peak = %f", peakDb);
-            LOGD("Level 1 déclenche. valeur noiseMedian = %f", noiseMedian);
-            LOGD("Level 1 déclenche. valeur noiseSigma = %f", noiseSigma);
+            else {
+                peakConfirmed = peakConfirmed + 1;
+                //LOGD("peak confirmed = %d", peakConfirmed);
+            }
+        }
+        else {
+            peakConfirmed = 0;
+            //LOGD("peak confirmed = %d", peakConfirmed);
+        }
+
+
+
+
+        if (integrationCount % 300 == 0) {
+            LOGD("le ratio de déclenchement est = %f", lvl1Ratio);
         }
 
         auto maintenant = std::chrono::steady_clock::now();
@@ -838,9 +874,9 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
             int signalStrengthIndexSent = 0 ;
         }
 
-        if (integrationCount%100==0){
-            LOGD("time tous les 100 tours");
-        }
+        //if (integrationCount%100==0){
+        //    LOGD("time tous les 100 tours");
+        //}
 
         // Send signal typologyto Java
         env->CallVoidMethod(strengthCallbackObj, strengthCallbackMethod, signalStrengthIndexSent);
@@ -857,7 +893,6 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
         // Send new frequency tracking to Java
         env->CallVoidMethod(peakFrequencyCallbackObj, peakFrequencyCallbackMethod, static_cast<long>(std::round(trackingFrequency)));
 
-        indexCircularPowerDB = (indexCircularPowerDB + 1) % integrationPowerPeriod;
     };
 
     rtlsdr_reset_buffer(dev);
