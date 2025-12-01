@@ -720,7 +720,7 @@ Java_fr_intuite_rtlsdrbridge_RtlSdrBridgeWrapper_nativeReadAsync(
 
 
         //First condition for signal strong
-        if (peakDb > noiseMedian + 3.0 * noiseSigma) {
+        if (peakDb > noiseMedian + 4.0 * noiseSigma) {
             if (peakConfirmed >= confirmation) {
                 if (peakDb > maxPeakAndFrequency[0]) {
                     maxPeakAndFrequency[0] = peakDb;
