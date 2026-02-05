@@ -1,0 +1,14 @@
+[submodule "LimeSuite"]
+    path = LimeSuite
+    url = https://github.com/alexandreGellibert/LimeSuite_ForAndroid.git
+    branch = main
+
+[submodule "SoapyRTLSDR"]
+    path = SoapyRTLSDR
+    url = https://github.com/alexandreGellibert/SoapyRTLSDR_ForAndroid.git
+    branch = main
+
+[submodule "SoapySDR"]
+    path = SoapySDR
+    url = https://github.com/alexandreGellibert/SoapySDR_ForAndroid.git
+    branch = main

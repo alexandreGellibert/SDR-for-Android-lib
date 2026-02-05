@@ -61,7 +61,7 @@ void transientBoost(std::vector<float>& x, float coeff);
 std::vector<int16_t> floatToPCM(const std::vector<float>& in, float gain);
 
 // 11) demod pipeline
-void processSSB_opt(const unsigned char *buffer, int len, uint32_t sampleRate,
+void processSSB_opt(std::vector<std::complex<float>> iq, uint32_t sampleRate,
                     bool upperSideband, std::vector<int16_t> &pcmOut, bool &pulse, int mode);
 
 // Optional: detect if a pulse exists in the last processed block

@@ -218,16 +218,15 @@ std::vector<int16_t> floatToPCM(const std::vector<float>& in, float gain){
 // ------------------------------
 // 11) Full SSB pipeline (optimized)
 // ------------------------------
-void processSSB_opt(const unsigned char *buffer, int len, uint32_t sampleRate,
+void processSSB_opt(std::vector<std::complex<float>> iq, uint32_t sampleRate,
                          bool upperSideband, std::vector<int16_t> &pcmOut, bool &pulse, int mode){
     // table init
-    int sampCount = len / 2;
-    static std::vector<std::complex<float>> iq;
     static std::vector<float> audio;
+    static size_t sampCount = iq.size();
     iq.resize(sampCount);
     audio.resize(sampCount);
 
-    // --- 0) Check mode and adjust parameters accordingly
+    // --- 1) Check mode and adjust parameters accordingly
     if (mode == 2) {
         demod_agcTarget = 0.45f;
         demod_agcFast = 0.008f;
@@ -254,9 +253,6 @@ void processSSB_opt(const unsigned char *buffer, int len, uint32_t sampleRate,
         demod_lowpass_q = 0.9f;
         demod_transient_coeff = 0.55f;
     }
-
-    // --- 1) Conversion IQ
-    convertIQ(buffer, len, iq);
 
     // --- 2) DC removal
     removeDC(iq, 0.9995f);
