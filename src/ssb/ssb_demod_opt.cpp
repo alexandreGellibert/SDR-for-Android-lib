@@ -6,7 +6,7 @@
 // File: ssb_demod_high_opt.cpp
 // ------------------------------
 
-#include "../include/ssb_demod_opt.h"
+#include "ssb_demod_opt.h"
 #include <cmath>
 #include <algorithm>
 #include <cstddef>

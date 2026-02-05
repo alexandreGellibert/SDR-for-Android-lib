@@ -1,6 +1,5 @@
 #include <cmath>
 #include <jni.h>
-#include <string.h>
 #include <__exception/exception.h>
 #include <android/log.h>
 #include <rtl-sdr-android.h>
@@ -14,12 +13,8 @@
 #include <numeric>
 #include <complex>
 #include <SoapySDR/Formats.h>
-#include "../include/rtl-sdr-bridge-preferences.h"
-//#include "../include/ssb_demod.h"
-//include "../include/ssb_demod_high.h"
-//#include "../include/ssb_demod_boost.h"
-#include "../include/ssb_demod_opt.h"
-//#include "../include/ssb_demod_opt+boost.h"
+#include "rtl-sdr-bridge-preferences.h"
+#include "ssb/ssb_demod_opt.h"
 #include <algorithm>
 #include <stdexcept>
 #include <cstring>

@@ -44,33 +44,33 @@ set(ENABLE_SOAPY_LMS7 ON CACHE BOOL "" FORCE)
 
 
 # Build libusb as a shared library
-add_subdirectory(libusb)
+add_subdirectory(third_party/libusb)
 
 # =======================
 # SoapySDR
 # =======================
-add_subdirectory(SoapySDR)
-add_subdirectory(SoapyRTLSDR)
+add_subdirectory(third_party/SoapySDR)
+add_subdirectory(third_party/SoapyRTLSDR)
 
 # LimeSuite
-add_subdirectory(LimeSuite)
+add_subdirectory(third_party/LimeSuite)
 
 # fftw3f (static)
 add_library(fftw3f STATIC IMPORTED)
 set_target_properties(fftw3f PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/libs/${ANDROID_ABI}/libfftw3f.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/include/fftw3"
+        IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/third_party/fftw3/static_lib/${ANDROID_ABI}/libfftw3f.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/third_party/fftw3/include"
 )
 
 # rtl-sdr
 add_library(rtlsdr SHARED
-        rtl-sdr/src/librtlsdr.c
-        rtl-sdr/src/tuner_e4k.c
-        rtl-sdr/src/tuner_fc0012.c
-        rtl-sdr/src/tuner_fc0013.c
-        rtl-sdr/src/tuner_fc2580.c
-        rtl-sdr/src/tuner_r82xx.c
-        rtl-sdr/src/convenience/convenience.c
+        third_party/rtl-sdr/src/librtlsdr.c
+        third_party/rtl-sdr/src/tuner_e4k.c
+        third_party/rtl-sdr/src/tuner_fc0012.c
+        third_party/rtl-sdr/src/tuner_fc0013.c
+        third_party/rtl-sdr/src/tuner_fc2580.c
+        third_party/rtl-sdr/src/tuner_r82xx.c
+        third_party/rtl-sdr/src/convenience/convenience.c
 )
 
 
@@ -78,25 +78,22 @@ add_library(rtlsdr SHARED
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         src/rtl-sdr-bridge-java.cpp
-        # src/ssb_demod.cpp
-        # src/ssb_demod_high.cpp
-        # src/ssb_demod_boost.cpp
-        src/ssb_demod_opt.cpp
-        #src/ssb_demod_opt+boost.cpp
+        src/ssb/ssb_demod_opt.cpp
 )
 
 target_include_directories(rtlsdr
         PUBLIC
-        ${CMAKE_SOURCE_DIR}/rtl-sdr/include
+        ${CMAKE_SOURCE_DIR}/third_party/rtl-sdr/include
         PRIVATE
-        ${CMAKE_SOURCE_DIR}/libusb/libusb
-        ${CMAKE_SOURCE_DIR}/libusb/android
+        ${CMAKE_SOURCE_DIR}/third_party/libusb/libusb
+        ${CMAKE_SOURCE_DIR}/third_party/libusb/android
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-        ${CMAKE_SOURCE_DIR}/libusb/libusb
-        ${CMAKE_SOURCE_DIR}/libusb/android
-        ${CMAKE_SOURCE_DIR}/SoapySDR/include
+        ${CMAKE_SOURCE_DIR}/third_party/libusb/libusb
+        ${CMAKE_SOURCE_DIR}/third_party/libusb/android
+        ${CMAKE_SOURCE_DIR}/third_party/SoapySDR/include
+        ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}
 )
 
