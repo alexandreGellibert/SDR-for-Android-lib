@@ -1,0 +1,103 @@
+[
+  {
+    "vendorId": "0x0bda",
+    "productId": "0x2838",
+    "name": "Generic RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1209",
+    "productId": "0x2832",
+    "name": "Generic RTL2832U (pid.codes)",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1b80",
+    "productId": "0xd393",
+    "name": "MyGica / Ardata / Twintech RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1d19",
+    "productId": "0x1101",
+    "name": "Dexatek / MSI RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1d19",
+    "productId": "0x1102",
+    "name": "Dexatek RTL2832U v3",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1f4d",
+    "productId": "0xb803",
+    "name": "Lifeview / MyGica RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1f4d",
+    "productId": "0xc803",
+    "name": "Lifeview RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1f4d",
+    "productId": "0xd803",
+    "name": "PROlectrix RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x0ccd",
+    "productId": "0x00a9",
+    "name": "Terratec Cinergy T Stick Black",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x0ccd",
+    "productId": "0x00b3",
+    "name": "Terratec NOXON RTL2832U",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x0ccd",
+    "productId": "0x00d7",
+    "name": "Terratec Cinergy T Stick+",
+    "driver": "rtlsdr"
+  },
+  {
+    "vendorId": "0x1d50",
+    "productId": "0x6106",
+    "name": "LimeSDR-USB",
+    "driver": "lime",
+    "comment": "vendorId/productId probably not visible by Android (FTDI USB)"
+  },
+  {
+    "vendorId": "0x1d50",
+    "productId": "0x6108",
+    "name": "LimeSDR Mini",
+    "driver": "lime",
+    "comment": "vendorId/productId probably not visible by Android (FTDI USB)"
+  },
+  {
+    "vendorId": "0x1d50",
+    "productId": "0x6107",
+    "name": "LimeNET-Micro",
+    "driver": "lime",
+    "comment": "vendorId/productId probably not visible by Android (FTDI USB)"
+  },
+  {
+    "vendorId": "0x0403",
+    "productId": "0x601f",
+    "name": "LimeSDR Mini",
+    "driver": "lime",
+    "comment": "FTDI USB vendorId/productId visible by Android"
+  },
+  {
+    "vendorId": "0x0403",
+    "productId": "0x601f",
+    "name": "LimeSDR Mini 2.0",
+    "driver": "lime",
+    "comment": "FTDI USB vendorId/productId visible by Android"
+  }
+]
