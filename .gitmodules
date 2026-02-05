@@ -1,5 +1,5 @@
 [submodule "LimeSuite"]
-    path = third_party/LimeSuite
+	path = third_party/Lime
     url = https://github.com/alexandreGellibert/LimeSuite_ForAndroid.git
     branch = main
 

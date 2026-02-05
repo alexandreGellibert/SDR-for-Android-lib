@@ -2,10 +2,6 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("rtl-sdr-bridge-android-lib")
 
-set(ANDROID_JNI_LIBS_DIR
-        ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI}
-)
-
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
 # Force 16 KB segment alignment
