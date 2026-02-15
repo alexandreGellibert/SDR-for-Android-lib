@@ -1,21 +1,48 @@
-cmake_minimum_required(VERSION 3.3.1)
+cmake_minimum_required(VERSION 3.10)
 
-PROJECT( "libusb" C )
+project(libusb C)
 
-# Force 16 KB segment alignment
+# Force 16 KB segment alignment (Android 16KB page requirement)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 
-FILE ( GLOB_RECURSE SOURCES_LIB "libusb/*.c" )
+# Core sources
+set(LIBUSB_CORE
+        libusb/core.c
+        libusb/descriptor.c
+        libusb/hotplug.c
+        libusb/io.c
+        libusb/strerror.c
+        libusb/sync.c
+)
 
-SET ( CMAKE_C_FLAGS         "-Wall" )
-SET ( CMAKE_C_FLAGS_DEBUG   "-g -DDEBUG")
-SET ( CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG" )
+# Linux backend (used for Android)
+set(LIBUSB_LINUX
+        libusb/os/linux_usbfs.c
+        libusb/os/linux_netlink.c
+        libusb/os/threads_posix.c
+        libusb/os/events_posix.c
+)
 
-FIND_LIBRARY( LOG_LIB log )
+add_library(libusb SHARED
+        ${LIBUSB_CORE}
+        ${LIBUSB_LINUX}
+)
 
-ADD_LIBRARY( ${PROJECT_NAME} SHARED ${SOURCES_LIB} )
-TARGET_INCLUDE_DIRECTORIES( ${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/android" )
-TARGET_INCLUDE_DIRECTORIES( ${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libusb" )
+target_include_directories(libusb PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/android
+)
+target_include_directories(libusb
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/libusb
+)
 
-TARGET_LINK_LIBRARIES( ${PROJECT_NAME} ${LOG_LIB} )
+target_link_libraries(libusb
+        log
+        android
+)
+
+target_compile_definitions(libusb PRIVATE
+        ANDROID
+        HAVE_POLL_H
+        HAVE_SYS_TIME_H
+)

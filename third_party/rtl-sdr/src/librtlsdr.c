@@ -2,7 +2,6 @@
  * rtl-sdr, turns your Realtek RTL2832 based DVB dongle into a SDR receiver
  * Copyright (C) 2012-2014 by Steve Markgraf <steve@steve-m.de>
  * Copyright (C) 2012 by Dimitri Stolnikov <horiz0n@gmx.net>
- *  Copyright © 2013-2022 Signalware Ltd <driver@sdrtouch.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,8 +67,6 @@ enum rtlsdr_async_status {
 };
 
 #define FIR_LEN 16
-#define EEPROM_SIZE	256
-#define STR_OFFSET	0x09
 
 /*
  * FIR coefficients.
@@ -124,7 +121,6 @@ struct rtlsdr_dev {
 	unsigned int xfer_errors;
 	char manufact[256];
 	char product[256];
-	int force_bt;
 };
 
 void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val);
@@ -803,7 +799,7 @@ int rtlsdr_get_usb_strings(rtlsdr_dev_t *dev, char *manufact, char *product,
 		libusb_get_string_descriptor_ascii(dev->devh, dd.iManufacturer,
 						   (unsigned char *)manufact,
 						   buf_max);
-    }
+	}
 
 	if (product) {
 		memset(product, 0, buf_max);
@@ -1306,7 +1302,9 @@ uint32_t rtlsdr_get_device_count(void)
 	uint32_t device_count = 0;
 	struct libusb_device_descriptor dd;
 	ssize_t cnt;
-
+#if defined(__ANDROID__)
+    return 0;
+#endif
 	r = libusb_init(&ctx);
 	if(r < 0)
 		return 0;
@@ -1439,13 +1437,17 @@ int rtlsdr_get_index_by_serial(const char *serial)
 /* Returns true if the manufact_check and product_check strings match what is in the dongles EEPROM */
 int rtlsdr_check_dongle_model(void *dev, char *manufact_check, char *product_check)
 {
-	if ((strcmp(((rtlsdr_dev_t *)dev)->manufact, manufact_check) == 0 && strcmp(((rtlsdr_dev_t *)dev)->product, product_check) == 0))
+	if ((strcmp(((rtlsdr_dev_t *)dev)->manufact, manufact_check) == 0&& strcmp(((rtlsdr_dev_t *)dev)->product, product_check) == 0))
 		return 1;
 
 	return 0;
 }
 
+#ifdef __ANDROID__
+int rtlsdr_open(rtlsdr_dev_t **out_dev, int fd)
+#else
 int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
+#endif
 {
 	int r;
 	int i;
@@ -1464,6 +1466,10 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	memset(dev, 0, sizeof(rtlsdr_dev_t));
 	memcpy(dev->fir, fir_default, sizeof(fir_default));
 
+#ifdef __ANDROID__
+    libusb_set_option(dev->ctx, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
+
 	r = libusb_init(&dev->ctx);
 	if(r < 0){
 		free(dev);
@@ -1472,7 +1478,13 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 
 	dev->dev_lost = 1;
 
-	cnt = libusb_get_device_list(dev->ctx, &list);
+#ifdef __ANDROID__
+    /* 🔥 Android magic here */
+    r = libusb_wrap_sys_device(dev->ctx,
+                               (intptr_t)fd,
+                               &dev->devh);
+#else
+    cnt = libusb_get_device_list(dev->ctx, &list);
 
 	for (i = 0; i < cnt; i++) {
 		device = list[i];
@@ -1495,7 +1507,8 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	}
 
 	r = libusb_open(device, &dev->devh);
-	if (r < 0) {
+
+    if (r < 0) {
 		libusb_free_device_list(list, 1);
 		fprintf(stderr, "usb_open error %d\n", r);
 		if(r == LIBUSB_ERROR_ACCESS)
@@ -1505,6 +1518,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	}
 
 	libusb_free_device_list(list, 1);
+#endif
 
 	if (libusb_kernel_driver_active(dev->devh, 0) == 1) {
 		dev->driver_active = 1;
@@ -1543,13 +1557,13 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	rtlsdr_init_baseband(dev);
 	dev->dev_lost = 0;
 
-    /* Get device manufacturer and product id */
-    r = rtlsdr_get_usb_strings(dev, dev->manufact, dev->product, NULL);
+	/* Get device manufacturer and product id */
+	r = rtlsdr_get_usb_strings(dev, dev->manufact, dev->product, NULL);
 
-    /* Probe tuners */
+	/* Probe tuners */
 	rtlsdr_set_i2c_repeater(dev, 1);
 
-    reg = rtlsdr_i2c_read_reg(dev, E4K_I2C_ADDR, E4K_CHECK_ADDR);
+	reg = rtlsdr_i2c_read_reg(dev, E4K_I2C_ADDR, E4K_CHECK_ADDR);
 	if (reg == E4K_CHECK_VAL) {
 		fprintf(stderr, "Found Elonics E4000 tuner\n");
 		dev->tuner_type = RTLSDR_TUNER_E4000;
@@ -2036,12 +2050,6 @@ int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on)
 	if (!dev)
 		return -1;
 
-	/* If it's the bias tee GPIO, and force bias tee is on
-	* don't allow the bias tee to turn off. Prevents software
-	* that initializes with the bias tee off from turning it off */
-	if(gpio == 0 && dev->force_bt)
-		on = 1;
-
 	rtlsdr_set_gpio_output(dev, gpio);
 	rtlsdr_set_gpio_bit(dev, gpio, on);
 
@@ -2051,226 +2059,4 @@ int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on)
 int rtlsdr_set_bias_tee(rtlsdr_dev_t *dev, int on)
 {
 	return rtlsdr_set_bias_tee_gpio(dev, 0, on);
-}
-
-int get_string_descriptor(int pos, uint8_t *data, char *str)
-{
-	int len, i, j = 0;
-
-	len = data[pos];
-
-	if (data[pos + 1] != 0x03)
-		fprintf(stderr, "Error: invalid string descriptor!\n");
-
-	for (i = 2; i < len; i += 2)
-		str[j++] = data[pos + i];
-
-	str[j] = 0x00;
-
-	return pos + i;
-}
-
-
-
-// Patch for Android
-
-#include "rtl-sdr-android.h"
-#include <android/log.h>
-#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "rtl-sdr-android", __VA_ARGS__))
-
-int rtlsdr_open2(rtlsdr_dev_t **out_dev, int fd, const char * devicePath) {
-	int r;
-	rtlsdr_dev_t *dev = NULL;
-	libusb_device *device = NULL;
-	uint8_t reg;
-	uint8_t buf[EEPROM_SIZE];
-	int pos;
-
-	dev = malloc(sizeof(rtlsdr_dev_t));
-	if (NULL == dev)
-		return -ENOMEM;
-
-	memset(dev, 0, sizeof(rtlsdr_dev_t));
-	memcpy(dev->fir, fir_default, sizeof(fir_default));
-
-	int status = libusb_init(&dev->ctx);
-	if (status != LIBUSB_SUCCESS)
-		return status;
-	else if (dev->ctx == NULL)
-		return LIBUSB_ERROR_OTHER;
-
-	dev->dev_lost = 1;
-	device = libusb_get_device2(dev->ctx, devicePath);
-
-	if (!device) {
-		r = -1;
-		goto err;
-	}
-
-	r = libusb_open2(device, &dev->devh, fd);
-
-	if (libusb_kernel_driver_active(dev->devh, 0) == 1) {
-		dev->driver_active = 1;
-
-#ifdef DETACH_KERNEL_DRIVER
-        if (!libusb_detach_kernel_driver(dev->devh, 0)) {
-            fprintf(stderr, "Detached kernel driver\n");
-        } else {
-            fprintf(stderr, "Detaching kernel driver failed!");
-            goto err;
-        }
-#else
-		LOGI("ERROR: \nKernel driver is active, or device is "
-			 "claimed by second instance of librtlsdr."
-			 "\nIn the first case, please either detach"
-			 " or blacklist the kernel module\n"
-			 "(dvb_usb_rtl28xxu), or enable automatic"
-			 " detaching at compile time.\n\n");
-#endif
-	}
-
-    r = libusb_claim_interface(dev->devh, 0);
-    if (r < 0) {
-        LOGI("ERROR: usb_claim_interface error %d\n", r);
-        goto err;
-    }
-
-	dev->rtl_xtal = DEF_RTL_XTAL_FREQ;
-
-	/* perform a dummy write, if it fails, reset the device */
-	if (rtlsdr_write_reg(dev, USBB, USB_SYSCTL, 0x09, 1) < 0) {
-		LOGI("ERROR: Resetting device...\n");
-		libusb_reset_device(dev->devh);
-	}
-
-	rtlsdr_init_baseband(dev);
-	dev->dev_lost = 0;
-
-	/* Get device manufacturer and product id
-	 * NOTE: The sstandard way to get these strings from libusb doesn't work on Android
-	 * Instead grab them directly from the EEPROM
-	 * */
-
-	r = rtlsdr_read_eeprom(dev, buf, 0, EEPROM_SIZE);
-	pos = get_string_descriptor(STR_OFFSET, buf, dev->manufact);
-	get_string_descriptor(pos, buf, dev->product);
-
-	/* Probe tuners */
-	rtlsdr_set_i2c_repeater(dev, 1);
-
-	reg = rtlsdr_i2c_read_reg(dev, E4K_I2C_ADDR, E4K_CHECK_ADDR);
-	if (reg == E4K_CHECK_VAL) {
-		LOGI("ERROR: Found Elonics E4000 tuner\n");
-		dev->tuner_type = RTLSDR_TUNER_E4000;
-		goto found;
-	}
-
-	reg = rtlsdr_i2c_read_reg(dev, FC0013_I2C_ADDR, FC0013_CHECK_ADDR);
-	if (reg == FC0013_CHECK_VAL) {
-		LOGI("ERROR: Found Fitipower FC0013 tuner\n");
-		dev->tuner_type = RTLSDR_TUNER_FC0013;
-		goto found;
-	}
-
-	reg = rtlsdr_i2c_read_reg(dev, R820T_I2C_ADDR, R82XX_CHECK_ADDR);
-	if (reg == R82XX_CHECK_VAL) {
-		LOGI("ERROR: Found Rafael Micro R820T tuner\n");
-		dev->tuner_type = RTLSDR_TUNER_R820T;
-		goto found;
-	}
-
-	reg = rtlsdr_i2c_read_reg(dev, R828D_I2C_ADDR, R82XX_CHECK_ADDR);
-	if (reg == R82XX_CHECK_VAL) {
-		LOGI("ERROR: Found Rafael Micro R828D tuner\n");
-
-        if (rtlsdr_check_dongle_model(dev, "RTLSDRBlog", "Blog V4"))
-            LOGI("ERROR: RTL-SDR Blog V4 Detected\n");
-
-		dev->tuner_type = RTLSDR_TUNER_R828D;
-		goto found;
-	}
-
-	/* initialise GPIOs */
-	rtlsdr_set_gpio_output(dev, 4);
-
-	/* reset tuner before probing */
-	rtlsdr_set_gpio_bit(dev, 4, 1);
-	rtlsdr_set_gpio_bit(dev, 4, 0);
-
-	reg = rtlsdr_i2c_read_reg(dev, FC2580_I2C_ADDR, FC2580_CHECK_ADDR);
-	if ((reg & 0x7f) == FC2580_CHECK_VAL) {
-		LOGI("ERROR: Found FCI 2580 tuner\n");
-		dev->tuner_type = RTLSDR_TUNER_FC2580;
-		goto found;
-	}
-
-	reg = rtlsdr_i2c_read_reg(dev, FC0012_I2C_ADDR, FC0012_CHECK_ADDR);
-	if (reg == FC0012_CHECK_VAL) {
-		LOGI("ERROR: Found Fitipower FC0012 tuner\n");
-		rtlsdr_set_gpio_output(dev, 6);
-		dev->tuner_type = RTLSDR_TUNER_FC0012;
-		goto found;
-	}
-
-	found:
-	/* use the rtl clock value by default */
-	dev->tun_xtal = dev->rtl_xtal;
-	dev->tuner = &tuners[dev->tuner_type];
-	
-	switch (dev->tuner_type) {
-		case RTLSDR_TUNER_R828D:
-            /* If NOT an RTL-SDR Blog V4, set typical R828D 16 MHz freq. Otherwise, keep at 28.8 MHz. */
-            if (!(rtlsdr_check_dongle_model(dev, "RTLSDRBlog", "Blog V4"))) {
-                dev->tun_xtal = R828D_XTAL_FREQ;
-            }
-            /* fall-through */
-		case RTLSDR_TUNER_R820T:
-			/* disable Zero-IF mode */
-			rtlsdr_demod_write_reg(dev, 1, 0xb1, 0x1a, 1);
-
-			/* only enable In-phase ADC input */
-			rtlsdr_demod_write_reg(dev, 0, 0x08, 0x4d, 1);
-
-			/* the R82XX use 3.57 MHz IF for the DVB-T 6 MHz mode, and
-             * 4.57 MHz for the 8 MHz mode */
-			rtlsdr_set_if_freq(dev, R82XX_IF_FREQ);
-
-			/* enable spectrum inversion */
-			rtlsdr_demod_write_reg(dev, 1, 0x15, 0x01, 1);
-			break;
-		case RTLSDR_TUNER_UNKNOWN:
-			LOGI("ERROR: No supported tuner found\n");
-			rtlsdr_set_direct_sampling(dev, 1);
-			break;
-		default:
-			break;
-	}
-
-	/* Hack to force the Bias T to always be on if we set the IR-Endpoint
-	* bit in the EEPROM to 0. Default on EEPROM is 1.
-	*/
-	dev->force_bt = (buf[7] & 0x02) ? 0 : 1;
-	if(dev->force_bt)
-		rtlsdr_set_bias_tee(dev, 1);
-
-	if (dev->tuner->init)
-		r = dev->tuner->init(dev);
-
-	rtlsdr_set_i2c_repeater(dev, 0);
-
-	*out_dev = dev;
-
-	return 0;
-	err:
-	if (dev) {
-		if (dev->devh)
-			libusb_close(dev->devh);
-
-		if (dev->ctx)
-			libusb_exit(dev->ctx);
-
-		free(dev);
-	}
-
-	return r;
 }

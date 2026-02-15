@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "fr.intuite.rtlsdrbridge"
+    namespace = "fr.intuite.sdrbridge"
     compileSdk = 35
 
     defaultConfig {

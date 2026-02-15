@@ -1,5 +1,9 @@
-# RTL-SDR Bridge for Android lib
-A C++ library for RTL-SDR and FFTW with JNI bindings for Android.
+# SDR Bridge for Android lib
+A C++ library for SDR devices with JNI bindings for Android.
+
+So far, compatible with:
+* RTL-SDR dongles
+* Lime dongles (tested only on Lime Mini 2.0) - feel free to test more and report
 
 The Wrapper is written in Kotlin but can be adapted for Java without too much trouble.
 
@@ -12,8 +16,8 @@ Our algorithm transforms the signal (FFT), detects peaks and signal quality too.
 > **No backward compatibility is guaranteed during the development phase.**
 
 ## How to install
-1. Create an Android Project (Kotlin - Java 17) (if you use another Java version, you need to update the buid.gradle.ktx file)
-2. Add the RTL-SDR-Bridge library as a git submodule:
+1. Create an Android Project (Kotlin - Java 17) (if you use another Java version, you need to update the build.gradle.ktx file)
+2. Add the SDR-Bridge library as a git submodule:
 ```bash
 git add .gitmodules rtl-sdr-lib
 git commit -m "Add rtl-sdr-lib as a submodule"
@@ -55,23 +59,39 @@ Once it starts reading, it will callback the Kotlin/Java through 4 callbacks:
 4. peakFrequencyCallback: (Long) -> Unit = {} : The frequency of the signal at its Peak
 
 ```java
-import fr.intuite.rtlsdrbridge.RtlSdrBridgeWrapper
+import fr.intuite.sdr.bridge.SDRBridge;
 
-private val rtlBridgeWrapper = RtlSdrBridgeWrapper
+private val sdrBridge = SDRBridge
 
-rtlBridgeWrapper.setLogListener { message -> // how you handle C++ logs }
+sdrBridge.initConf
 
-success = rtlBridgeWrapper.nativeInitRTL(deviceFileDescriptor, devicePath)
-if (success) {
-  rtlBridgeWrapper.nativeReadAsync(fftCallback, signalStrengthCallback, peakCallback, peakFrequencyCallback)
-}
+setLogListener {
+    message -> // how you handle C++ logs }
+
+            success = sdrBridge.initDongle(deviceFileDescriptor, devicePath)
+    if (success) {
+        sdrBridge.read(fftCallback, signalStrengthCallback, peakCallback, peakFrequencyCallback)
+    }
 ```
 
-## Open-source Libraries used
-Thanks for all the great open-source projects that were used in this project:
+## Dependencies
+Thanks for all the great open-source projects that were used in this project.
+Most of these libraries were forked in submodules.
+Please use the fork if you want to make it work straight away.
 
 FFTW3 https://github.com/FFTW/fftw3
 
-RTL-SDR (modified) https://github.com/osmocom/rtl-sdr.git
+RTL-SDR https://github.com/osmocom/rtl-sdr.git
 
 libusb  https://github.com/libusb/libusb.git
+
+SoapySDR 
+https://github.com/pothosware/SoapySDR
+https://github.com/pothosware/SoapyAirspy
+https://github.com/pothosware/SoapyRTLSDR
+
+Lime Suite
+https://github.com/myriadrf/LimeSuite
+
+See forks to make it compatible with Android
+https://github.com/alexandreGellibert?tab=repositories
