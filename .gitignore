@@ -1,2 +1,6 @@
 build/
 .cxx/
+third_party/libusb-1.0.24/
+third_party/libusb-1.0.25/
+third_party/libusb-1.0.26/
+third_party/libusb-1.0.27/
