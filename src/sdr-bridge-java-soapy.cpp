@@ -333,6 +333,17 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         LOGE("Failed to load SoapyLimeSDR: %s", e.what());
     }
 
+    try {
+        std::string err = SoapySDR::loadModule("libSoapyAirspy.so");
+        if (err.empty()) {
+            LOGI("SoapyAirspy module loaded");
+        } else {
+            LOGE("Failed to load SoapyAirspy: %s", err.c_str());
+        }
+    } catch (const std::exception &e) {
+        LOGE("Failed to load SoapyAirspy: %s", e.what());
+    }
+
     return JNI_VERSION_1_6;
 }
 
@@ -360,6 +371,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initDongle(JNIEnv *env, jobject obj, jint f
 
     try {
         sdrDevice = SoapySDR::Device::make(args);
+
         sdrDevice->setFrequency(SOAPY_SDR_RX, 0, prefs.getCenterFrequency());
         sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, prefs.getSampleRate());
         setMainRxGain(sdrDevice, prefs.getGain() / 10);

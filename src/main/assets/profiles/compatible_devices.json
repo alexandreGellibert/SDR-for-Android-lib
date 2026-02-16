@@ -99,5 +99,17 @@
     "name": "LimeSDR Mini 2.0",
     "driver": "lime",
     "comment": "FTDI USB vendorId/productId visible by Android"
+  },
+  {
+    "vendorId": "0x1d50",
+    "productId": "0x60a1",
+    "name": "Airspy R2 / Airspy Mini",
+    "driver": "airspy"
+  },
+  {
+    "vendorId": "0x03eb",
+    "productId": "0x800c",
+    "name": "Airspy HF+ / HF+ Discovery",
+    "driver": "airspy"
   }
 ]
