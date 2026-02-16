@@ -1,17 +1,15 @@
 [submodule "LimeSuite"]
 	path = third_party/LimeSuite
-    url = https://github.com/alexandreGellibert/LimeSuite_ForAndroid.git
-    branch = main
-
+	url = https://github.com/alexandreGellibert/LimeSuite_ForAndroid.git
+	branch = main
 [submodule "SoapyRTLSDR"]
-    path = third_party/SoapyRTLSDR
-    url = https://github.com/alexandreGellibert/SoapyRTLSDR_ForAndroid.git
-    branch = main
-
+	path = third_party/SoapyRTLSDR
+	url = https://github.com/alexandreGellibert/SoapyRTLSDR_ForAndroid.git
+	branch = main
 [submodule "SoapySDR"]
-    path = third_party/SoapySDR
-    url = https://github.com/alexandreGellibert/SoapySDR_ForAndroid.git
-    branch = main
+	path = third_party/SoapySDR
+	url = https://github.com/alexandreGellibert/SoapySDR_ForAndroid.git
+	branch = main
 [submodule "third_party/libairspy"]
 	path = third_party/libairspy
 	url = https://github.com/alexandreGellibert/airspyone_host_ForAndroid.git
