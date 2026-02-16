@@ -40,12 +40,11 @@ set(ENABLE_FTDI ON CACHE BOOL "" FORCE)
 set(ENABLE_FX3 OFF CACHE BOOL "" FORCE)
 set(ENABLE_SOAPY_LMS7 ON CACHE BOOL "" FORCE)
 
-
+# LibUSB
 add_subdirectory(third_party/libusb)
 # RTL-SDR
 add_subdirectory(third_party/rtl-sdr)
-#
-## Airspy
+# Airspy
 add_subdirectory(third_party/libairspy)
 
 # =======================
@@ -54,9 +53,9 @@ add_subdirectory(third_party/libairspy)
 add_subdirectory(third_party/SoapySDR)
 add_subdirectory(third_party/SoapyRTLSDR)
 add_subdirectory(third_party/SoapyAirspy)
+
 # LimeSuite
 add_subdirectory(third_party/LimeSuite)
-
 
 # fftw3f (static)
 add_library(fftw3f STATIC IMPORTED)
