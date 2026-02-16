@@ -185,9 +185,6 @@ namespace {
         size_t bufflen = calculateOptimalBufflen(currentSampleRate, streamFormat);
         size_t numBuffers = calculateOptimalBuffers(currentSampleRate);
 
-//         bufflen = 16384;   // bytes → 4096 IQ samples
-//         numBuffers = 8;
-
         streamArgs["bufflen"] = std::to_string(bufflen);
         streamArgs["buffers"] = std::to_string(numBuffers);
 
@@ -857,7 +854,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setGain(JNIEnv *env, jobject obj,
         // UI -> dB
         double gainDb = gain / 10.0;
 
-        // Désactiver AGC (important pour RTL-SDR)
+        // Desactivate AGC (important for RTL-SDR)
         sdrDevice->setGainMode(SOAPY_SDR_RX, 0, false);
 
         const std::string mainGain = findMainRxGain(sdrDevice, 0);
