@@ -503,8 +503,6 @@ void soapy_sdr_read_async() {
                         rxBuffer.begin() + ret
                 );
 
-                LOGD("ret=%d acc=%zu ui=%zu", ret, accBuffer.size(), currentSampleSize);
-
                 // 2️⃣ Cut in Exact size blocs
                 while (accBuffer.size() >= samplesPerReading_to_process) {
                     RxChunk chunk;
