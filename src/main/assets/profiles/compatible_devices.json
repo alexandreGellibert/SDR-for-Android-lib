@@ -110,6 +110,6 @@
     "vendorId": "0x03eb",
     "productId": "0x800c",
     "name": "Airspy HF+ / HF+ Discovery",
-    "driver": "airspy"
+    "driver": "airspyhf"
   }
 ]

@@ -95,13 +95,57 @@ namespace {
     }
 
     /**
+ * Returns the number of bytes per sample (per complex or real element)
+ * for the given SoapySDR stream format.
+ *
+ * @param format One of the SOAPY_SDR_xxx format strings (e.g. "CF32", "CS16", "CU8", "F32", etc.)
+ * @return Number of bytes per sample, or 0 if the format is unknown/invalid.
+ */
+    size_t getBytesPerSample(const std::string& format) {
+        // Most common formats first
+        if (format == SOAPY_SDR_CF32) return 8;   // 2 × float (4 bytes each)
+        if (format == SOAPY_SDR_CS16) return 4;   // 2 × int16_t (2 bytes each)
+        if (format == SOAPY_SDR_CU8)  return 2;   // 2 × uint8_t (1 byte each)
+        if (format == SOAPY_SDR_CF64) return 16;  // 2 × double (8 bytes each)
+
+        // Less common / exotic formats
+        if (format == SOAPY_SDR_CS32) return 8;   // 2 × int32_t
+        if (format == SOAPY_SDR_CU32) return 8;   // 2 × uint32_t
+        if (format == SOAPY_SDR_CS8)  return 2;   // 2 × int8_t
+        if (format == SOAPY_SDR_CU16) return 4;   // 2 × uint16_t
+
+        // 12-bit formats (packed, 3 bytes per complex sample)
+        if (format == SOAPY_SDR_CS12 || format == SOAPY_SDR_CU12) {
+            return 3;
+        }
+
+        // Very rare 4-bit packed formats (1 byte per complex sample)
+        if (format == SOAPY_SDR_CS4 || format == SOAPY_SDR_CU4) {
+            return 1;
+        }
+
+        // Real-only formats
+        if (format == SOAPY_SDR_F64) return 8;    // double
+        if (format == SOAPY_SDR_F32) return 4;    // float
+        if (format == SOAPY_SDR_S32 ||
+            format == SOAPY_SDR_U32) return 4;    // int32 / uint32
+        if (format == SOAPY_SDR_S16 ||
+            format == SOAPY_SDR_U16) return 2;    // int16 / uint16
+        if (format == SOAPY_SDR_S8  ||
+            format == SOAPY_SDR_U8)  return 1;    // int8 / uint8
+
+        // Unknown / invalid format
+        return 0;
+    }
+
+    /**
      * Calculates an optimal buffer length (in bytes) for USB transfers,
      * aiming for low latency without excessive overhead.
      * @param sampleRateHz The desired sample rate in Hz.
      * @param format The SoapySDR stream format (e.g., SOAPY_SDR_CF32).
      * @return The calculated optimal buffer length in bytes, clamped to reasonable min/max values.
      */
-    size_t calculateOptimalBufflen(uint32_t sampleRateHz, const std::string &format){
+    size_t calculateOptimalBufflenInBytes(uint32_t sampleRateHz, const std::string &format){
         if (sampleRateHz <= 0.0) return 16384;  // fallback for invalid rate
 
         constexpr double targetFillTimeLow = 0.025;  // 25 ms — good compromise for tracking
@@ -112,12 +156,8 @@ namespace {
         // samples = rate × time
         double samplesPerBuffer = sampleRateHz * targetTime;
 
-        size_t bytesPerSample;
-        if (format == SOAPY_SDR_CF32) {
-            bytesPerSample = 8;  // 2 × float = 8 bytes
-        } else if (format == SOAPY_SDR_CS16) {
-            bytesPerSample = 4;  // 2 × int16 = 4 bytes
-        } else {
+        size_t bytesPerSample = getBytesPerSample(format);
+        if (bytesPerSample == 0) {
             bytesPerSample = 4;  // fallback, or throw error
         }
 
@@ -139,7 +179,7 @@ namespace {
      * @param sampleRateHz The desired sample rate in Hz.
      * @return The calculated optimal number of buffers.
      */
-    size_t calculateOptimalBuffers(uint32_t sampleRateHz) {
+    size_t calculateOptimalBuffersNumber(uint32_t sampleRateHz) {
         if (sampleRateHz <= 0.0) return 12;
 
         // Base: 12 is usually safe
@@ -181,15 +221,27 @@ namespace {
 
         SoapySDR::Kwargs streamArgs;
 
-        // RTL-SDR specific keys
-        size_t bufflen = calculateOptimalBufflen(currentSampleRate, streamFormat);
-        size_t numBuffers = calculateOptimalBuffers(currentSampleRate);
+        size_t bufflen_bytes = -1;
+        size_t buff_numbers = calculateOptimalBuffersNumber(currentSampleRate);
 
-        streamArgs["bufflen"] = std::to_string(bufflen);
-        streamArgs["buffers"] = std::to_string(numBuffers);
+        // Almost all drivers understand "buffers"
+        streamArgs["buffers"] = std::to_string(buff_numbers);
 
-        // Lime specific key
-        streamArgs["bufferLength"] = std::to_string(bufflen / 4);  // in samples, not bytes
+        // Driver-specific
+        std::string driver = sdrDevice->getDriverKey();
+        if (driver == "rtlsdr") {
+            bufflen_bytes = calculateOptimalBufflenInBytes(currentSampleRate, streamFormat);
+            streamArgs["bufflen"] = std::to_string(bufflen_bytes);
+        }
+        else if (driver == "lime") {
+            // Usually wants samples, not bytes
+            bufflen_bytes = calculateOptimalBufflenInBytes(currentSampleRate, streamFormat);
+            size_t bytes_per_sample = getBytesPerSample(streamFormat);
+            if (bytes_per_sample == 0) bytes_per_sample = 1;
+            size_t bufflen_samples = bufflen_bytes / bytes_per_sample;
+            streamArgs["bufferLength"] = std::to_string(bufflen_samples);
+        }
+        // Airspy → nothing specific needed, MTU usually 65536
 
         // You can add more args if needed, e.g. "asyncBuffs"="4" for advanced tuning
 
@@ -220,9 +272,11 @@ namespace {
 
             // Query new MTU after setup (good practice)
             current_rx_MTU = sdrDevice->getStreamMTU(rxStream);
-            if (current_rx_MTU == 0) current_rx_MTU = 8192;  // fallback if not supported
+            if (current_rx_MTU == 0 || current_rx_MTU > 262144) {
+                current_rx_MTU = 65536;  // fallback if not supported or too large
+            }
 
-            LOGD("Stream (re)setup OK | bufflen=%zu | buffers=%d | MTU=%d", bufflen, numBuffers,
+            LOGD("Stream (re)setup OK | bufflen_bytes=%d | buffers_number=%d | MTU=%d", bufflen_bytes, buff_numbers,
                  current_rx_MTU);
 
             return true;
@@ -303,43 +357,30 @@ JavaVM *getJavaVM() {
     return sdr_bridge_internal::gJavaVM;
 }
 
+bool loadModule(const std::string &moduleName, const std::string &fileName) {
+    try {
+        std::string err = SoapySDR::loadModule(fileName);
+        if (err.empty()) {
+            LOGI("%s module loaded", moduleName.c_str());
+            return true;
+        } else {
+            LOGE("Failed to load %s: %s", moduleName.c_str(), err.c_str());
+        }
+    } catch (const std::exception &e) {
+        LOGE("Failed to load %s: %s", moduleName.c_str(), e.what());
+    }
+    return false;
+}
+
 // Cache JavaVM during JNI initialization
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     sdr_bridge_internal::gJavaVM = vm;
     LOGD("JNI_OnLoad called, JavaVM cached");
 
-    try {
-        std::string err = SoapySDR::loadModule("libSoapyRTLSDR.so");
-        if (err.empty()) {
-            LOGI("SoapyRTLSDR module loaded");
-        } else {
-            LOGE("Failed to load SoapyRTLSDR: %s", err.c_str());
-        }
-    } catch (const std::exception &e) {
-        LOGE("Failed to load SoapyRTLSDR: %s", e.what());
-    }
-
-    try {
-        std::string err = SoapySDR::loadModule("libSoapyLMS7.so");
-        if (err.empty()) {
-            LOGI("SoapyLimeSDR module loaded");
-        } else {
-            LOGE("Failed to load SoapyLimeSDR: %s", err.c_str());
-        }
-    } catch (const std::exception &e) {
-        LOGE("Failed to load SoapyLimeSDR: %s", e.what());
-    }
-
-    try {
-        std::string err = SoapySDR::loadModule("libSoapyAirspy.so");
-        if (err.empty()) {
-            LOGI("SoapyAirspy module loaded");
-        } else {
-            LOGE("Failed to load SoapyAirspy: %s", err.c_str());
-        }
-    } catch (const std::exception &e) {
-        LOGE("Failed to load SoapyAirspy: %s", e.what());
-    }
+    loadModule("SoapyRTLSDR", "libSoapyRTLSDR.so");
+    loadModule("SoapyLimeSDR", "libSoapyLMS7.so");
+    loadModule("SoapyAirspy", "libSoapyAirspy.so");
+    loadModule("SoapyAirspyHF", "libSoapyAirspyHF.so");
 
     return JNI_VERSION_1_6;
 }
@@ -370,7 +411,12 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initDongle(JNIEnv *env, jobject obj, jint f
         sdrDevice = SoapySDR::Device::make(args);
 
         sdrDevice->setFrequency(SOAPY_SDR_RX, 0, prefs.getCenterFrequency());
-        sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, prefs.getSampleRate());
+        auto listSampleRage = sdrDevice->listSampleRates(SOAPY_SDR_RX, 0);
+        for (double sampleRate: listSampleRage) {
+            LOGD("Sample rate accepted %.0f", sampleRate);
+        }
+        sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, listSampleRage[0]);
+        //sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, prefs.getSampleRate());
         setMainRxGain(sdrDevice, prefs.getGain() / 10);
     } catch (const std::exception &e) {
         LOGD("SoapySDR init failed: %s", e.what());

@@ -22,3 +22,9 @@
 [submodule "third_party/rtl-sdr"]
 	path = third_party/rtl-sdr
 	url = https://github.com/alexandreGellibert/rtl-sdr_ForAndroid.git
+[submodule "third_party/SoapyAirspyHF"]
+	path = third_party/SoapyAirspyHF
+	url = https://github.com/alexandreGellibert/SoapyAirspyHF-ForAndroid.git
+[submodule "third_party/airspyhf"]
+	path = third_party/airspyhf
+	url = https://github.com/alexandreGellibert/airspyhf-ForAndroid.git
