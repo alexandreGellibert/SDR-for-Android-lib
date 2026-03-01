@@ -47,7 +47,7 @@ private:
 
     // DSP processing internal state variables
     int integrationCount = 0;
-    int integrationPeriod = 1; // Number of packets to integrate in temporal. 1 means no integration to be calculated and so far displayed
+    int integrationPeriod = 10; // Number of packets to integrate in temporal. 1 means no integration to be calculated and so far displayed
     int bufferIndex = 0;
     fftwf_complex *circularBuffer = nullptr;
     int currentSampCount = 0;

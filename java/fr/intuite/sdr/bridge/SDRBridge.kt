@@ -5,6 +5,36 @@ import com.google.gson.reflect.TypeToken
 import fr.intuite.sdr.DeviceCategory
 import java.io.InputStreamReader
 
+data class SDRRange(val minimum: Long, val maximum: Long, val step: Double)
+
+enum class Driver(val key: String) {
+    RTLSDR("rtlsdr"),
+    LIME("lime"),
+    AIRSPY("airspy"),
+    AIRSPYHF("airspyhf");
+
+    companion object {
+        fun fromString(key: String?): Driver =
+            entries.find { it.key.equals(key, ignoreCase = true) } ?: RTLSDR
+    }
+}
+
+data class SDRConfig(
+    val centerFrequency: Long = 430000000L,
+    // Samples per reading: Multiple of 512 is recommended
+    val samplesPerReading: Int = 16384,
+    // Default sample rate should depend on the connected device
+    val sampleRate: Long = 2500000,
+    // Default gain should depend on the connected device
+    val gain: Int = 10,
+    val freqFocusRangeKhz: Int = 5,
+    val refreshFFTMs: Long = 50L,
+    val refreshPeakMs: Long = 200L,
+    val refreshSignalStrengthMs: Long = 30L,
+    // Sound mode: 0 mute, 1 normal, 2 loud
+    val soundMode: Int = 1
+)
+
 object SDRBridge  {
 
     // LogListener interface for handling native log messages
@@ -56,22 +86,41 @@ object SDRBridge  {
         }
     }
 
-    external fun initConfig(
-        centerFrequency: Long,
-        sampleRate: Long,
-        samplesPerReading: Int,
-        freqFocusRangeKhz: Int,
-        gain: Int,
-        refreshFFTMs: Long,
-        refreshPeakMs: Long,
-        refreshSignalStrengthMs: Long,
-        soundMode: Int
-    ): Boolean
+    fun initDongle(fd: Int, path: String?, driver: Driver): Boolean {
+        return initDongle(fd, path, driver.key)
+    }
+
+    fun applyConfig(sdrConfig: SDRConfig): Boolean{
+        return applyConfig(
+            sdrConfig.centerFrequency,
+            sdrConfig.sampleRate,
+            sdrConfig.samplesPerReading,
+            sdrConfig.freqFocusRangeKhz,
+            sdrConfig.gain,
+            sdrConfig.refreshFFTMs,
+            sdrConfig.refreshPeakMs,
+            sdrConfig.refreshSignalStrengthMs,
+            sdrConfig.soundMode
+        )
+    }
 
     external fun initDongle(
         fd: Int,
         path: String?,
         driver: String
+    ): Boolean
+
+    external fun getDriver(): String?
+
+    external fun applyConfig(centerFrequency: Long,
+                             sampleRate: Long,
+                             samplesPerReading: Int,
+                             freqFocusRangeKhz: Int,
+                             gain: Int,
+                             refreshFFTMs: Long,
+                             refreshPeakMs: Long,
+                             refreshSignalStrengthMs: Long,
+                             soundMode: Int
     ): Boolean
 
     external fun read(
@@ -92,13 +141,21 @@ object SDRBridge  {
      */
     external fun setFrequency(frequency: Long)
     external fun setFrequencyFocusRange(frequencyFocusRange: Int)
+    external fun getFrequency(): Long
+
+    /**
+     * Returns the valid frequency ranges for the device.
+     * @return An array of SDRRange objects, each representing a frequency range, or null if not supported.
+     */
+    external fun getFrequencyRange(): Array<SDRRange>?
+
 
     /**
      * GAIN
      */
-
     external fun setGain(gain: Int)
     external fun getTunerGains(): IntArray?
+    external fun getGain(): Int
 
 
     /**
@@ -106,6 +163,13 @@ object SDRBridge  {
      */
     external fun setSampleRate(sampleRate: Long)
     external fun setSamplesPerReading(samplesPerReading: Int)
+    external fun getSampleRate(): Long
+
+    /**
+     * Returns a list of supported sample rates for the device.
+     * @return An array of supported sample rates, or null if not supported.
+     */
+    external fun getSampleRatesList(): LongArray?
 
 
     /**
@@ -117,6 +181,9 @@ object SDRBridge  {
 
     /**
      * SOUND
+     */
+    /**
+     * Sound mode: 0 mute, 1 normal, 2 loud
      */
     external fun setSoundMode(soundMode: Int)
 }

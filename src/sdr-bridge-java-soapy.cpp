@@ -29,6 +29,29 @@ bool contains(const Range& r, const T& value) {
     return std::find(std::begin(r), std::end(r), value) != std::end(r);
 }
 
+enum class Driver {
+    RTLSDR,
+    LIME,
+    AIRSPY,
+    AIRSPYHF
+};
+
+Driver driver_from_string(std::string_view key) {
+    if (key == "rtlsdr"   || key == "RTLSDR")   return Driver::RTLSDR;
+    if (key == "lime"     || key == "LIME")     return Driver::LIME;
+    if (key == "airspy"   || key == "AIRSPY")   return Driver::AIRSPY;
+    if (key == "airspyhf" || key == "AIRSPYHF") return Driver::AIRSPYHF;
+    return Driver::RTLSDR;  // fallback
+}
+
+std::string_view driver_to_string(Driver d) {
+    if (d == Driver::RTLSDR)    return "rtlsdr";
+    if (d == Driver::LIME)      return "lime";
+    if (d == Driver::AIRSPY)    return "airspy";
+    if (d == Driver::AIRSPYHF)  return "airspyhf";
+    return "rtlsdr";            // fallback
+}
+
 // anonymous namespace style (cleaner that static)
 namespace {
 
@@ -56,6 +79,7 @@ namespace {
     };
     // SoapySDR device and stream
     SoapySDR::Device *sdrDevice;
+    std::optional<Driver> deviceDriver;
     SoapySDR::Stream *rxStream;
 
     // FFT Processor instance
@@ -228,12 +252,10 @@ namespace {
         streamArgs["buffers"] = std::to_string(buff_numbers);
 
         // Driver-specific
-        std::string driver = sdrDevice->getDriverKey();
-        if (driver == "rtlsdr") {
+        if (deviceDriver == Driver::RTLSDR) {
             bufflen_bytes = calculateOptimalBufflenInBytes(currentSampleRate, streamFormat);
             streamArgs["bufflen"] = std::to_string(bufflen_bytes);
-        }
-        else if (driver == "lime") {
+        } else if (deviceDriver == Driver::LIME) {
             // Usually wants samples, not bytes
             bufflen_bytes = calculateOptimalBufflenInBytes(currentSampleRate, streamFormat);
             size_t bytes_per_sample = getBytesPerSample(streamFormat);
@@ -241,7 +263,7 @@ namespace {
             size_t bufflen_samples = bufflen_bytes / bytes_per_sample;
             streamArgs["bufferLength"] = std::to_string(bufflen_samples);
         }
-        // Airspy → nothing specific needed, MTU usually 65536
+        // Airspy, AirspyHF → nothing specific needed, MTU usually 65536
 
         // You can add more args if needed, e.g. "asyncBuffs"="4" for advanced tuning
 
@@ -290,61 +312,6 @@ namespace {
             return false;
         }
     }
-
-    /**
-     * Identifies the main receive gain stage available on the SoapySDR device.
-     * @param device Pointer to the SoapySDR device.
-     * @param channel The channel index (typically 0 for single-channel devices).
-     * @return The name of the main gain stage (e.g., "TUNER", "PGA", "RF", "VGA"), or an empty string if not found.
-     */
-    std::string findMainRxGain(SoapySDR::Device *device, size_t channel = 0) {
-        if (!device) return "";
-
-        const auto gains = device->listGains(SOAPY_SDR_RX, channel);
-
-        // Only interested in Main Gain Settings
-        // TUNER: Case RTL-SDR, only this gain is of interest
-        // PGA: Lime SDR TODO handle cases for Gain TIA and LNA?
-        // RF: Airspy
-        // HackRF: VGA
-        static const std::vector<std::string> preferred = {
-                "TUNER",
-                "PGA",
-                "RF",
-                "VGA"
-        };
-
-        for (const auto &p: preferred) {
-            for (const auto &g: gains) {
-                if (g == p) {
-                    return g;
-                }
-            }
-        }
-
-        LOGD("No known Gain Setting Found");
-        return "";
-    }
-
-    /**
-     * Sets the gain to the Main gain of the connected device
-     * @param device Pointer to the SoapySDR device.
-     * @param the gain value
-     * @param channel The channel index (typically 0 for single-channel devices).
-     * @return The name of the main gain stage (e.g., "TUNER", "PGA", "RF", "VGA"), or an empty string if not found.
-     */
-    int setMainRxGain(SoapySDR::Device *device, int32_t gain, size_t channel = 0) {
-        const std::string mainGain = findMainRxGain(device, channel);
-
-        if (mainGain.empty()) {
-            LOGE("No main gain found for device ");
-            return -1;
-        }
-        device->setGainMode(SOAPY_SDR_RX, 0, false);
-
-        device->setGain(SOAPY_SDR_RX, channel, mainGain, gain);
-        return 0;
-    }
 }
 
 // Namespace used when different internall cpp needs access to a variable
@@ -391,12 +358,6 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initDongle(JNIEnv *env, jobject obj, jint f
 
     initJavaVariables(env, obj);
 
-    BridgeConfig &prefs = BridgeConfig::getInstance();
-    if (!prefs.isInitialized()) {
-        LOGD("BridgeConfig and Settings not yet initialized");
-        return false;
-    }
-
     const char *usbfsPathCStr = env->GetStringUTFChars(usbfsPath, nullptr);
     const char *deviceCStr = env->GetStringUTFChars(device, nullptr);
 
@@ -409,23 +370,33 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initDongle(JNIEnv *env, jobject obj, jint f
 
     try {
         sdrDevice = SoapySDR::Device::make(args);
-
-        sdrDevice->setFrequency(SOAPY_SDR_RX, 0, prefs.getCenterFrequency());
-        auto listSampleRage = sdrDevice->listSampleRates(SOAPY_SDR_RX, 0);
-        for (double sampleRate: listSampleRage) {
-            LOGD("Sample rate accepted %.0f", sampleRate);
+        deviceDriver = driver_from_string(deviceCStr);
+        if (!sdrDevice) {
+            LOGE("SoapySDR init failed");
+            return false;
         }
-        sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, listSampleRage[0]);
-        //sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, prefs.getSampleRate());
-        setMainRxGain(sdrDevice, prefs.getGain() / 10);
     } catch (const std::exception &e) {
-        LOGD("SoapySDR init failed: %s", e.what());
+        LOGE("SoapySDR init failed: %s", e.what());
         return false;
     }
 
     env->ReleaseStringUTFChars(usbfsPath, usbfsPathCStr);
     env->ReleaseStringUTFChars(device, deviceCStr);
     return true;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getDriver(JNIEnv *env, jobject obj) {
+    if (!sdrDevice || !deviceDriver.has_value()) {
+        LOGD("Device not initialized for getDriver");
+        return nullptr; // Return null string if device not initialized
+    }
+    try {
+        return env->NewStringUTF(driver_to_string(*deviceDriver).data());
+    } catch (const std::exception &e) {
+        LOGE("Error getting driver key: %s", e.what());
+        return nullptr; // Return null string on error
+    }
 }
 
 const bool USB = true;
@@ -709,18 +680,6 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         return;
     }
 
-    int ret = sdrDevice->activateStream(
-            rxStream,
-            0,      // flags
-            0,      // timeNs
-            0       // numElems (0 = unlimited)
-    );
-
-    if (ret != 0) {
-        LOGD("activate SoapySDR Stream failed: %d", ret);
-        return;
-    }
-
     // Start asynchronous reading
     soapy_sdr_read_async();
 }
@@ -779,6 +738,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
     if (sdrDevice) {
         SoapySDR::Device::unmake(sdrDevice);
         sdrDevice = nullptr;
+        deviceDriver.reset();
     }
 
     // 4️⃣ Stop SSB worker
@@ -816,8 +776,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setFrequency(JNIEnv *env, jobject obj,
-                                                                    jlong frequency) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setFrequency(JNIEnv *env, jobject obj, jlong frequency) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setCenterFrequency(frequency);
 
@@ -844,6 +803,21 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setFrequency(JNIEnv *env, jobject obj,
     isUpdatingConfiguration = false;
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getFrequency(JNIEnv *env, jobject obj) {
+    if (!sdrDevice) {
+        LOGD("Device not initialized for getFrequency");
+        return 0; // Default or error value
+    }
+    try {
+        double freq = sdrDevice->getFrequency(SOAPY_SDR_RX, 0);
+        return static_cast<jlong>(freq);
+    } catch (const std::exception &e) {
+        LOGE("Error getting frequency: %s", e.what());
+        return 0; // Default or error value
+    }
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_setSampleRate(JNIEnv *env, jobject obj,
                                                                      jlong sampleRate) {
@@ -863,9 +837,9 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setSampleRate(JNIEnv *env, jobject obj,
         );
         LOGD("New Sample Rate %lld Hz", sampleRate);
 
-        if (!setupOrUpdateRxStream(sampleRate)) {
-            LOGD("Could not adjust Stream Setup to new sample rate %lld Hz", sampleRate);
-        }
+//        if (!setupOrUpdateRxStream(sampleRate)) {
+//            LOGD("Could not adjust Stream Setup to new sample rate %lld Hz", sampleRate);
+//        }
     }
     catch (const std::exception &e) {
         LOGD("ERROR: Failed to set sample rate %lld : %s",
@@ -873,6 +847,21 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setSampleRate(JNIEnv *env, jobject obj,
     }
 
     isUpdatingConfiguration = false;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getSampleRate(JNIEnv *env, jobject obj) {
+    if (!sdrDevice) {
+        LOGD("Device not initialized for getSampleRate");
+        return 0;
+    }
+    try {
+        double sampleRate = sdrDevice->getSampleRate(SOAPY_SDR_RX, 0);
+        return std::llround(sampleRate);
+    } catch (const std::exception &e) {
+        LOGE("Error getting sample rate: %s", e.what());
+        return 0;
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -886,45 +875,14 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setGain(JNIEnv *env, jobject obj,
         return;
     }
 
-    auto gains = sdrDevice->listGains(SOAPY_SDR_RX, 0);
-
-    for (const auto &g: gains) {
-        LOGD("Gain stage: %s", g.c_str());
-        double v = sdrDevice->getGain(SOAPY_SDR_RX, 0, g);
-        LOGD("Gain %s = %.1f dB", g.c_str(), v);
-    }
-
     try {
         // UI -> dB
         double gainDb = gain / 10.0;
 
         // Desactivate AGC (important for RTL-SDR)
         sdrDevice->setGainMode(SOAPY_SDR_RX, 0, false);
-
-        const std::string mainGain = findMainRxGain(sdrDevice, 0);
-
-        if (!mainGain.empty()) {
-            sdrDevice->setGain(SOAPY_SDR_RX, 0, mainGain, gainDb);
-
-            // TODO isolate this code only for Lime devices
-            const std::string lnaGain = "LNA";
-            if (contains(gains, lnaGain)) {
-                auto lnaRange = sdrDevice->getGainRange(SOAPY_SDR_RX, 0, lnaGain);
-                sdrDevice->setGain(SOAPY_SDR_RX, 0, lnaGain, lnaRange.maximum() - 12);
-            }
-
-            const std::string tiaGain = "TIA";
-            if (contains(gains, tiaGain)) {
-                auto tiaRange = sdrDevice->getGainRange(SOAPY_SDR_RX, 0, tiaGain);
-                sdrDevice->setGain(SOAPY_SDR_RX, 0, tiaGain, tiaRange.maximum() - 3);
-            }
-            LOGD("Main RX Gain %s = %.1f dB", mainGain.c_str(), gainDb);
-        } else {
-            // Fallback global
-            sdrDevice->setGain(SOAPY_SDR_RX, 0, gainDb);
-            LOGD("Global RX Gain = %.1f dB", gainDb);
-        }
-
+        sdrDevice->setGain(SOAPY_SDR_RX, 0, gainDb);
+        LOGD("Global RX Gain = %.1f dB", gainDb);
     } catch (const std::exception &e) {
         LOGD("ERROR setting gain: %s", e.what());
     }
@@ -932,10 +890,23 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setGain(JNIEnv *env, jobject obj,
     isUpdatingConfiguration = false;
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getGain(JNIEnv *env, jobject obj) {
+    if (!sdrDevice) {
+        LOGD("Device not initialized for getGain");
+        return 0;
+    }
+    try {
+        double gainDb = sdrDevice->getGain(SOAPY_SDR_RX, 0);
+        return static_cast<jint>(std::round(gainDb * 10.0)); // Convert back to UI value
+    } catch (const std::exception &e) {
+        LOGE("Error getting gain: %s", e.what());
+        return 0;
+    }
+}
+
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setSamplesPerReading(JNIEnv *env,
-                                                                            jobject obj,
-                                                                            jint samplesPerReading) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setSamplesPerReading(JNIEnv *env, jobject obj, jint samplesPerReading) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setSamplesPerReading(samplesPerReading);
     LOGD("New Samples Per Reading %d", samplesPerReading);
@@ -943,9 +914,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setSamplesPerReading(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setFrequencyFocusRange(JNIEnv *env,
-                                                                              jobject obj,
-                                                                              jint frequencyFocusRange) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setFrequencyFocusRange(JNIEnv *env, jobject obj, jint frequencyFocusRange) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setSamplesPerReading(frequencyFocusRange);
     LOGD("New Frequency Focus Range %ld", frequencyFocusRange);
@@ -953,8 +922,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setFrequencyFocusRange(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshFFTMs(JNIEnv *env, jobject obj,
-                                                                       jlong refreshFFTMs) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshFFTMs(JNIEnv *env, jobject obj, jlong refreshFFTMs) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setRefreshFFTMs(refreshFFTMs);
     LOGD("New Refresh FFT period in ms %ld", refreshFFTMs);
@@ -962,8 +930,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshFFTMs(JNIEnv *env, jobject obj,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshPeakMs(JNIEnv *env, jobject obj,
-                                                                        jlong refreshPeakMs) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshPeakMs(JNIEnv *env, jobject obj, jlong refreshPeakMs) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setRefreshPeakMs(refreshPeakMs);
     LOGD("New Refresh Peak period in ms %ld", refreshPeakMs);
@@ -971,29 +938,22 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshPeakMs(JNIEnv *env, jobject obj,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshSignalStrengthMs(JNIEnv *env,
-                                                                                  jobject obj,
-                                                                                  jlong refreshSignalStrengthMs) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setRefreshSignalStrengthMs(JNIEnv *env, jobject obj, jlong refreshSignalStrengthMs) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setRefreshSignalStrengthMs(refreshSignalStrengthMs);
     LOGD("New Refresh Signal Strength %ld", refreshSignalStrengthMs);
     isUpdatingConfiguration = false;
 }
 
-
-
-
-
 extern "C" JNIEXPORT void JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_setSoundMode(JNIEnv *env, jobject obj,
-                                                                    jint soundMode) {
+Java_fr_intuite_sdr_bridge_SDRBridge_setSoundMode(JNIEnv *env, jobject obj, jint soundMode) {
     isUpdatingConfiguration = true;
     BridgeConfig::getInstance().setSoundMode(soundMode);
     isUpdatingConfiguration = false;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_fr_intuite_sdr_bridge_SDRBridge_initConfig(
+Java_fr_intuite_sdr_bridge_SDRBridge_applyConfig(
         JNIEnv *env,
         jobject /* this */,
         jlong centerFrequency,
@@ -1007,7 +967,8 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initConfig(
         jint soundMode
 ) {
     BridgeConfig &prefs = BridgeConfig::getInstance();
-// Initialize BridgeConfig
+
+    // Initialize BridgeConfig
     prefs.initialize(
             centerFrequency,
             sampleRate,
@@ -1019,6 +980,26 @@ Java_fr_intuite_sdr_bridge_SDRBridge_initConfig(
             refreshSignalStrengthMs,
             soundMode
     );
+
+    if (sdrDevice) {
+        try {
+            if (sdrDevice->getFrequency(SOAPY_SDR_RX, 0) != static_cast<double>(centerFrequency)) {
+                sdrDevice->setFrequency(SOAPY_SDR_RX, 0, static_cast<double>(centerFrequency));
+            }
+
+            if (sdrDevice->getGain(SOAPY_SDR_RX, 0) != gain) {
+                sdrDevice->setGain(SOAPY_SDR_RX, 0, gain);
+            }
+
+            if (sdrDevice->getSampleRate(SOAPY_SDR_RX, 0) != static_cast<double>(sampleRate)) {
+                sdrDevice->setSampleRate(SOAPY_SDR_RX, 0, static_cast<double>(sampleRate));
+            }
+        } catch (const std::exception &e) {
+            LOGE("Error applying configuration on the SDR device: %s", e.what());
+            return false;
+        }
+
+    }
 
     // Configure the FFTProcessor
     FftProcessorConfig fftConfig;
@@ -1036,14 +1017,9 @@ extern "C" JNIEXPORT jintArray JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_getTunerGains(JNIEnv *env, jobject obj) {
     if (!sdrDevice) return nullptr;
 
-    std::string selectedGain = findMainRxGain(sdrDevice);
+    sdrDevice->listGains(SOAPY_SDR_RX, 0);
 
-    if (selectedGain.empty()) {
-        LOGD("No tuner gain found");
-        return nullptr;
-    }
-
-    auto range = sdrDevice->getGainRange(SOAPY_SDR_RX, 0, selectedGain);
+    auto range = sdrDevice->getGainRange(SOAPY_SDR_RX, 0);
 
     double min = range.minimum();
     double max = range.maximum();
@@ -1073,4 +1049,83 @@ Java_fr_intuite_sdr_bridge_SDRBridge_getTunerGains(JNIEnv *env, jobject obj) {
     jintArray arr = env->NewIntArray(values.size());
     env->SetIntArrayRegion(arr, 0, values.size(), values.data());
     return arr;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getFrequencyRange(JNIEnv *env, jobject /*obj*/) {
+    if (!sdrDevice) return nullptr;
+
+    try {
+        SoapySDR::RangeList ranges = sdrDevice->getFrequencyRange(SOAPY_SDR_RX, 0);
+        if (ranges.empty()) {
+            return nullptr;
+        }
+
+        jclass rangeClass = env->FindClass("fr/intuite/sdr/bridge/SDRRange");
+        if (rangeClass == nullptr) {
+            LOGE("Could not find class fr/intuite/sdr/bridge/SDRRange");
+            return nullptr;
+        }
+
+        jmethodID rangeConstructor = env->GetMethodID(rangeClass, "<init>", "(JJD)V");
+        if (rangeConstructor == nullptr) {
+            LOGE("Could not find constructor for SDRRange");
+            return nullptr;
+        }
+
+        jobjectArray rangeArray = env->NewObjectArray(ranges.size(), rangeClass, nullptr);
+        if (rangeArray == nullptr) {
+            LOGE("Could not create object array for SDRRange");
+            return nullptr;
+        }
+
+        for (size_t i = 0; i < ranges.size(); ++i) {
+            const auto& range = ranges[i];
+            jobject rangeObj = env->NewObject(rangeClass, rangeConstructor,
+                                              std::llround(range.minimum()),
+                                              std::llround(range.maximum()),
+                                              static_cast<jdouble>(range.step()));
+            if (rangeObj == nullptr) {
+                 LOGE("Failed to create SDRRange object");
+                 return nullptr;
+            }
+            env->SetObjectArrayElement(rangeArray, i, rangeObj);
+            env->DeleteLocalRef(rangeObj);
+        }
+
+        return rangeArray;
+
+    } catch (const std::exception& e) {
+        LOGE("Error getting frequency range: %s", e.what());
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getSampleRatesList(JNIEnv *env, jobject /*obj*/) {
+    if (!sdrDevice) return nullptr;
+
+    try {
+        std::vector<double> rates = sdrDevice->listSampleRates(SOAPY_SDR_RX, 0);
+        if (rates.empty()) {
+            return nullptr;
+        }
+
+        std::vector<jlong> longRates;
+        longRates.reserve(rates.size());
+        for (double rate : rates) {
+            longRates.push_back(static_cast<jlong>(rate));
+        }
+
+        jlongArray result = env->NewLongArray(longRates.size());
+        if (result == nullptr) {
+            return nullptr; // out of memory error thrown
+        }
+        env->SetLongArrayRegion(result, 0, longRates.size(), longRates.data());
+        return result;
+
+    } catch (const std::exception& e) {
+        LOGE("Error listing sample rates: %s", e.what());
+        return nullptr;
+    }
 }

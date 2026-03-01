@@ -144,8 +144,8 @@ fr.intuite.sdr.bridge.SDRBridge
 
 ## Basic Lifecycle
 
-1. `initConfig(...)`
-2. `initDongle(fd, path, driver)`
+1. `initDongle(fd, path, driver)`
+2. `applyConfig(...)`
 3. `read(...)` with callbacks
 4. Control methods:
 
@@ -162,30 +162,29 @@ fr.intuite.sdr.bridge.SDRBridge
 ```kotlin
 import fr.intuite.sdr.bridge.SDRBridge
 
-SDRBridge.setLogListener { message ->
-    android.util.Log.d("SDRBridge", message)
-}
+if (SDRBridge.initDongle(fd, path, "rtlsdr")) {
 
-val success = SDRBridge.initConfig(
-    centerFrequency = 100_000_000L,
-    sampleRate = 2_000_000L,
-    samplesPerReading = 16384,
-    freqFocusRangeKhz = 200,
-    gain = 20,
-    refreshFFTMs = 100L,
-    refreshPeakMs = 500L,
-    refreshSignalStrengthMs = 1000L,
-    soundMode = 0
-)
+    val config = SDRConfig(
+        centerFrequency = 100_000_000L,
+        sampleRate = 2_000_000L,
+        samplesPerReading = 16384,
+        freqFocusRangeKhz = 200,
+        gain = 20,
+        refreshFFTMs = 100L,
+        refreshPeakMs = 500L,
+        refreshSignalStrengthMs = 1000L,
+        soundMode = 0
+    )
 
-if (success && SDRBridge.initDongle(fd, path, "rtlsdr")) {
+    SDRBridge.applyConfig(config)
+        
     SDRBridge.read(
         fftCallback = { /* FFT data */ },
         signalStrengthCallback = { /* Signal strength */ },
         peakCallback = { /* Peak raw */ },
         peakNormalizedCallback = { /* Peak normalized */ },
         peakFrequencyCallback = { /* Peak frequency */ },
-        pcmCallback = { /* Audio PCM */ }
+        pcmCallback = { /* Audio/Sound PCM */ }
     )
 }
 ```

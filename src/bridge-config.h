@@ -44,8 +44,8 @@ public:
     int getSamplesPerReading() const { return samplesPerReading_; }
     int getGain() const { return gain_; }
     std::chrono::milliseconds getRefreshGraphMs() const { return refreshFFTMs_; }
-    std::chrono::milliseconds getRefreshStrengthMs() const { return refreshPeakMs_; }
-    std::chrono::milliseconds getBipMaxLengthMs() const { return refreshSignalStrengthMs_; }
+    std::chrono::milliseconds getRefreshPeakMs() const { return refreshPeakMs_; }
+    std::chrono::milliseconds getRefreshSignalStrengthMs() const { return refreshSignalStrengthMs_; }
     float getSoundMode() const { return soundMode_; }
     bool isInitialized() const { return isPrefsInitialized_; }
 
@@ -64,14 +64,14 @@ private:
     BridgeConfig() = default; // Private constructor for singleton
 
     // Member variables
-    uint32_t centerFrequency_ = 0;
-    uint32_t sampleRate_ = 0;
-    int freqFocusRangeKhz_ = 0;
-    int samplesPerReading_ = 0;
+    uint32_t centerFrequency_ = 430000000;
+    uint32_t sampleRate_ = 2500000;
+    int freqFocusRangeKhz_ = 5;
+    int samplesPerReading_ = 16384;
     int gain_ = 0;
-    std::chrono::milliseconds refreshFFTMs_ = std::chrono::milliseconds(0);
-    std::chrono::milliseconds refreshPeakMs_ = std::chrono::milliseconds(0);
-    std::chrono::milliseconds refreshSignalStrengthMs_ = std::chrono::milliseconds(0);
+    std::chrono::milliseconds refreshFFTMs_ = std::chrono::milliseconds(50);
+    std::chrono::milliseconds refreshPeakMs_ = std::chrono::milliseconds(200);
+    std::chrono::milliseconds refreshSignalStrengthMs_ = std::chrono::milliseconds(30);
     int soundMode_ = 1;
     bool isPrefsInitialized_ = false;
 };
