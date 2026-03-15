@@ -212,7 +212,6 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
         maxPeakAndFrequency = {-130.0f, static_cast<float>(centerFrequency)};
     }
 
-
     // --- 6.7 DEFINITION OF SIGNAL DETECTED ---
     int signalEval = 0;
     loopNB++;

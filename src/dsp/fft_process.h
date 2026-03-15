@@ -61,7 +61,7 @@ private:
     std::chrono::steady_clock::time_point timeOfLastMaxPeak;
     std::chrono::steady_clock::time_point timeOfLastMaxPeakUpdate;
 
-    float refMagnitude = 50000.0f;
+    float refMagnitude = 1.0f; //was set to 50000 initially
     float refPower = refMagnitude * refMagnitude;
 
     std::vector<std::chrono::steady_clock::time_point> signalTimeTable;
