@@ -68,6 +68,8 @@ namespace {
     jmethodID peakFrequencyCallbackMethod = nullptr;
     jobject pcmCallbackObj = nullptr;
     jmethodID pcmCallbackMethod = nullptr;
+    jobject pulseCallbackObj = nullptr;
+    jmethodID pulseCallbackMethod = nullptr;
 
     // Global JNI object for passing float arrays back to Java/Kotlin
     jfloatArray result = nullptr;
@@ -604,7 +606,8 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         jobject peakCallback,
         jobject peakNormalizedCallback,
         jobject peakFrequencyCallback,
-        jobject pcmCallback) {
+        jobject pcmCallback,
+        jobject audioPulseCallback) {
 
     if (sdrDevice == nullptr) {
         LOGD("Device not initialized");
@@ -635,6 +638,10 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     pcmCallbackObj = env->NewGlobalRef(pcmCallback);
     jclass pcmCallbackClass = env->GetObjectClass(pcmCallback);
     pcmCallbackMethod = env->GetMethodID(pcmCallbackClass, "invoke", "([S)V");
+
+    pulseCallbackObj = env->NewGlobalRef(audioPulseCallback);
+    jclass pulseClass = env->GetObjectClass(audioPulseCallback);
+    pulseCallbackMethod = env->GetMethodID(pulseClass, "invoke", "(F)V");
 
     //THREAD for SSB PART
     // Start SSB worker thread using SSBProcessor
@@ -673,8 +680,18 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
             }
         }
     };
-    ssbProcessor.startProcessing(pcmDataToJavaCallback);
-
+    ssbProcessor.startProcessing(pcmDataToJavaCallback, [=](float strength) {
+        if (pulseCallbackObj == nullptr || pulseCallbackMethod == nullptr) return;
+        JNIEnv* cbEnv = nullptr;
+        bool att = false;
+        if (sdr_bridge_internal::gJavaVM->GetEnv((void**)&cbEnv, JNI_VERSION_1_6) == JNI_EDETACHED) {
+            if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
+            att = true;
+        }
+        cbEnv->CallVoidMethod(pulseCallbackObj, pulseCallbackMethod, strength);
+        if (env->ExceptionOccurred()) { cbEnv->ExceptionClear(); }
+        if (att) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
+    });
     if (!setupOrUpdateRxStream(BridgeConfig::getInstance().getSampleRate())) {
         LOGD("setup SoapySDR Stream failed");
         return;

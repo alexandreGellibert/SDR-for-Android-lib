@@ -75,6 +75,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         src/dsp/fft_process.cpp
         src/ssb/ssb_demod_opt.cpp
         src/ssb/ssb_processor.cpp
+        src/ssb/audio_pulse_detector.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

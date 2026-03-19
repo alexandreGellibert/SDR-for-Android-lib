@@ -129,7 +129,8 @@ object SDRBridge  {
         peakCallback: (Float) -> Unit,
         peakNormalizedCallback: (Float) -> Unit,
         peakFrequencyCallback: (Long) -> Unit,
-        pcmCallback: (ShortArray) -> Unit
+        pcmCallback: (ShortArray) -> Unit,
+        audioPulseCallback: (Float) -> Unit
     )
 
     external fun stopReading()

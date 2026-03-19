@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <functional> // For std::function
+#include "audio_pulse_detector.h"
 
 // Forward declarations
 struct SSB_Data {
@@ -25,12 +26,16 @@ public:
     SSBProcessor();
     ~SSBProcessor();
 
-    void startProcessing(PcmDataCallback pcm_callback_func);
+    void startProcessing(PcmDataCallback pcm_cb);
+    void startProcessing(PcmDataCallback pcm_cb, std::function<void(float)> pulse_cb);
     void stopProcessing();
     void enqueueData(std::vector<std::complex<float>>&& iq_data, uint32_t sample_rate);
 
 private:
     PcmDataCallback pcmCallback; // C++ callback function
+
+    AudioPulseDetector pulseDetector_;
+    std::function<void(float)> pulseCallback_;  // strength en dB SNR
 
     // Thread management
     std::queue<SSB_Data> ssb_queue;

@@ -18,18 +18,23 @@ SSBProcessor::~SSBProcessor() {
     // The pcmCallback (std::function) doesn't own JNI references, so no need to delete them here.
 }
 
-void SSBProcessor::startProcessing(PcmDataCallback pcm_callback_func) {
+void SSBProcessor::startProcessing(PcmDataCallback pcm_cb) {
+    startProcessing(pcm_cb, nullptr);
+}
+
+void SSBProcessor::startProcessing(PcmDataCallback pcm_cb,
+                                   std::function<void(float)> pulse_cb) {
     if (ssb_worker_running) {
         __android_log_print(ANDROID_LOG_WARN, LOG_TAG_SSB_BRIDGE, "SSB processing already running.");
         return;
     }
-
-    pcmCallback = pcm_callback_func; // Store the C++ callback
-
+    pcmCallback  = pcm_cb;
+    pulseCallback_ = pulse_cb;
     ssb_worker_running = true;
     ssb_worker_thread = std::thread(ssbProcessingThreadEntry, this);
     __android_log_print(ANDROID_LOG_INFO, LOG_TAG_SSB_BRIDGE, "SSB processing thread started.");
 }
+
 
 void SSBProcessor::stopProcessing() {
     if (!ssb_worker_running) return;
@@ -89,7 +94,12 @@ void SSBProcessor::ssbProcessingLoop() {
         if (pcmCallback && !pcm.empty()) {
             pcmCallback(pcm);
         }
-        // TODO: Handle pulse detection callback if needed
+
+        if (pulseDetector_.process(pcm)) {
+            if (pulseCallback_) {
+                pulseCallback_(pulseDetector_.lastPulseStrength());
+            }
+        }
     }
 
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_SSB_BRIDGE, "SSB Thread: Loop finished.");
