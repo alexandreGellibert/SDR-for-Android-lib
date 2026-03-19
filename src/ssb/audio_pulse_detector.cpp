@@ -1,5 +1,7 @@
 #include "audio_pulse_detector.h"
 
+AudioPulseDetector::AudioPulseDetector() : AudioPulseDetector(Config()) {}
+
 AudioPulseDetector::AudioPulseDetector(const Config& cfg) : cfg_(cfg) {
     shortWinSamples_   = static_cast<int>(cfg_.sampleRate * cfg_.shortWindowMs  / 1000.f);
     minBurstSamples_   = static_cast<int>(cfg_.sampleRate * cfg_.minDurationMs  / 1000.f);

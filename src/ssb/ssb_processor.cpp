@@ -1,5 +1,6 @@
 #include "ssb_processor.h"
 #include "ssb_demod_opt.h" // For processSSB_opt
+#include "audio_pulse_detector.h"
 #include "../bridge-config.h" // For BridgeConfig::getInstance()
 #include <android/log.h> // For __android_log_print
 #include <utility> // For std::move
