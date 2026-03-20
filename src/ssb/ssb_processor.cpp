@@ -48,13 +48,17 @@ void SSBProcessor::stopProcessing() {
     __android_log_print(ANDROID_LOG_INFO, LOG_TAG_SSB_BRIDGE, "SSB processing thread stopped.");
 }
 
-void SSBProcessor::enqueueData(std::vector<std::complex<float>>&& iq_data, uint32_t sample_rate) {
+void SSBProcessor::enqueueData(std::vector<std::complex<float>>&& iq_data,
+                               uint32_t sample_rate) {
+    if (!ssb_worker_running) return;  // ignorer si pas démarré
+
     std::lock_guard<std::mutex> lock(ssb_mutex);
-    // Clear queue if it gets too large to prevent excessive latency / memory usage
-    if (ssb_queue.size() > 5) { // Arbitrary threshold, can be tuned
-        std::queue<SSB_Data>().swap(ssb_queue); // Clear queue
-        __android_log_print(ANDROID_LOG_WARN, LOG_TAG_SSB_BRIDGE, "SSB queue cleared due to overflow.");
+
+    // Drop silently the last one
+    while (ssb_queue.size() >= 3) {
+        ssb_queue.pop();
     }
+
     ssb_queue.push({std::move(iq_data), sample_rate});
     ssb_cv.notify_one();
 }
@@ -64,44 +68,33 @@ void SSBProcessor::ssbProcessingThreadEntry(SSBProcessor* processor) {
 }
 
 void SSBProcessor::ssbProcessingLoop() {
-    // In this pure C++ layer, we no longer interact with JNI directly.
-    // The JavaVM attach/detach logic must be handled by the caller of startProcessing.
-    // The actual JNI callback will be handled by the pcmCallback.
-
     while (ssb_worker_running) {
-        std::unique_lock<std::mutex> lock(ssb_mutex);
-        ssb_cv.wait(lock, [this] { return !ssb_queue.empty() || !ssb_worker_running; });
-
-        if (!ssb_worker_running && ssb_queue.empty()) {
-            break; // Exit if worker is stopped and queue is empty
+        SSB_Data data;
+        {
+            std::unique_lock<std::mutex> lock(ssb_mutex);
+            ssb_cv.wait(lock, [this] {
+                return !ssb_queue.empty() || !ssb_worker_running;
+            });
+            if (!ssb_worker_running && ssb_queue.empty()) break;
+            if (ssb_queue.empty()) continue;
+            data = std::move(ssb_queue.front());
+            ssb_queue.pop();
         }
 
-        if (ssb_queue.empty()) {
-            continue; // Spurious wakeup
-        }
+        // Internal SSB processing state
+        std::vector<int16_t> pcm; // Buffer for processed PCM audio
+        int mode = 1; // Sound mode, will be fetched from BridgeConfig
+        bool pulse = false; // Pulse detection flag, if applicable
 
-        SSB_Data data = ssb_queue.front();
-        ssb_queue.pop();
-        lock.unlock();
+        processSSB_opt(data.iq, data.sampleRate, true, pcm, pulse, mode);
 
-        // Get sound mode from BridgeConfig - this is a C++ singleton, so it's fine here
-        mode = BridgeConfig::getInstance().getSoundMode();
-
-        // Perform SSB processing
-        // 'true' for USB, 'pulse' can be updated by processSSB_opt
-        processSSB_opt(data.iq, data.sampleRate, true, pcm, pulse, mode); 
-
-        // Invoke the C++ callback with processed PCM data
         if (pcmCallback && !pcm.empty()) {
             pcmCallback(pcm);
         }
 
-        if (pulseDetector_.process(pcm)) {
-            if (pulseCallback_) {
-                pulseCallback_(pulseDetector_.lastPulseStrength());
-            }
+        if (pulseCallback_ && pulseDetector_.process(pcm)) {
+            pulseCallback_(pulseDetector_.lastPulseStrength());
         }
     }
-
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_SSB_BRIDGE, "SSB Thread: Loop finished.");
 }

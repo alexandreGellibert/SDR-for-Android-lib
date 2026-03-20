@@ -44,11 +44,6 @@ private:
     std::thread ssb_worker_thread;
     std::atomic<bool> ssb_worker_running{false};
 
-    // Internal SSB processing state
-    std::vector<int16_t> pcm; // Buffer for processed PCM audio
-    int mode = 1; // Sound mode, will be fetched from BridgeConfig
-    bool pulse = false; // Pulse detection flag, if applicable
-
     // The actual thread function
     static void ssbProcessingThreadEntry(SSBProcessor* processor);
     void ssbProcessingLoop();
