@@ -67,6 +67,11 @@ void SSBProcessor::ssbProcessingThreadEntry(SSBProcessor* processor) {
     processor->ssbProcessingLoop();
 }
 
+void SSBProcessor::setPulseConfig(const AudioPulseDetector::Config& cfg) {
+    // Reset atomique — le détecteur repart proprement avec la nouvelle config
+    pulseDetector_ = AudioPulseDetector(cfg);
+}
+
 void SSBProcessor::ssbProcessingLoop() {
     while (ssb_worker_running) {
         SSB_Data data;

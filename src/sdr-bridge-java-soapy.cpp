@@ -1030,6 +1030,28 @@ Java_fr_intuite_sdr_bridge_SDRBridge_applyConfig(
     return true;
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_setPulseConfig(
+        JNIEnv*, jobject,
+        jfloat burstRatio,
+        jfloat minDurationMs,
+        jfloat maxDurationMs,
+        jfloat shortWindowMs,
+        jfloat longWindowMs,
+        jfloat refractoryMs) {
+
+    AudioPulseDetector::Config cfg;
+    cfg.burstRatio    = burstRatio;
+    cfg.minDurationMs = minDurationMs;
+    cfg.maxDurationMs = maxDurationMs;
+    cfg.shortWindowMs = shortWindowMs;
+    cfg.longWindowMs  = longWindowMs;
+    cfg.refractoryMs  = refractoryMs;
+    // sampleRate reste 48000 — fixé par le pipeline SSB
+
+    ssbProcessor.setPulseConfig(cfg);
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_getTunerGains(JNIEnv *env, jobject obj) {
     if (!sdrDevice) return nullptr;

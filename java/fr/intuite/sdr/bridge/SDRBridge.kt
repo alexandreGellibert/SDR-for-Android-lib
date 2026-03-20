@@ -71,6 +71,15 @@ object SDRBridge  {
         }
     }
 
+    external fun setPulseConfig(
+        burstRatio:    Float,
+        minDurationMs: Float,
+        maxDurationMs: Float,
+        shortWindowMs: Float,
+        longWindowMs:  Float,
+        refractoryMs:  Float
+    )
+
     private fun loadCompatibleDevices() {
         try {
             val inputStream = SDRBridge::class.java.classLoader?.getResourceAsStream("assets/profiles/compatible_devices.json")

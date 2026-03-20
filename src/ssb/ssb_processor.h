@@ -30,6 +30,7 @@ public:
     void startProcessing(PcmDataCallback pcm_cb, std::function<void(float)> pulse_cb);
     void stopProcessing();
     void enqueueData(std::vector<std::complex<float>>&& iq_data, uint32_t sample_rate);
+    void setPulseConfig(const AudioPulseDetector::Config& cfg);
 
 private:
     PcmDataCallback pcmCallback; // C++ callback function
