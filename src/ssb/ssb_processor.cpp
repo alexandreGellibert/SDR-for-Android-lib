@@ -88,16 +88,17 @@ void SSBProcessor::ssbProcessingLoop() {
             ssb_queue.pop();
         }
 
-        // Internal SSB processing state
-        std::vector<int16_t> pcm; // Buffer for processed PCM audio
-        int mode = 1; // Sound mode, will be fetched from BridgeConfig
-        bool pulse = false; // Pulse detection flag, if applicable
-
-        std::lock_guard<std::mutex> lock(configMutex_);
-        if (pendingConfigUpdate_) {
-            pulseDetector_ = AudioPulseDetector(pendingConfig_);
-            pendingConfigUpdate_ = false;
+        {
+            std::lock_guard<std::mutex> lock(configMutex_);
+            if (pendingConfigUpdate_) {
+                pulseDetector_ = AudioPulseDetector(pendingConfig_);
+                pendingConfigUpdate_ = false;
+            }
         }
+
+        std::vector<int16_t> pcm;
+        bool pulse = false;
+        int mode = BridgeConfig::getInstance().getSoundMode();
 
         processSSB_opt(data.iq, data.sampleRate, true, pcm, pulse, mode);
 
@@ -109,5 +110,4 @@ void SSBProcessor::ssbProcessingLoop() {
             pulseCallback_(pulseDetector_.lastPulseStrength());
         }
     }
-    __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG_SSB_BRIDGE, "SSB Thread: Loop finished.");
 }

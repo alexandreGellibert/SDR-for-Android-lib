@@ -75,6 +75,9 @@ namespace {
     jfloatArray result = nullptr;
     jint resultSize = 0;
 
+    jshortArray pcmArray = nullptr;
+    jint pcmArraySize = 0;
+
     // Global state variables related to device and processing status
     struct RxChunk {
         std::vector<std::complex<float>> samples;
@@ -410,61 +413,46 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     JNIEnv *env = nullptr;
     bool didAttach = false;
 
-    if (getJavaVM()->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
-        if (getJavaVM()->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+    jint getEnvResult = sdr_bridge_internal::gJavaVM->GetEnv((void **) &env, JNI_VERSION_1_6);
+    if (getEnvResult == JNI_EDETACHED) {
+        if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
             didAttach = true;
         } else {
-            // impossible d’attacher le thread
             return;
         }
+    } else if (getEnvResult != JNI_OK) {
+        return;
     }
 
-
-//    // Check if the thread is already attached
-//    jint result2 = getJavaVM()->GetEnv((void **) &env, JNI_VERSION_1_6);
-
     uint32_t sampleRate = BridgeConfig::getInstance().getSampleRate();
-    // Enqueue data for SSB processing in a separate thread
     ssbProcessor.enqueueData(std::vector<std::complex<float>>(buf, buf + len), sampleRate);
 
-    // Call the FFT processor
     fftProcessor.process(buf, len);
 
-    // Get results from FFT processor
     const std::vector<float> &power_shifted = fftProcessor.getPowerSpectrum();
     float peakDb = fftProcessor.getPeakDb();
     float peakNormalized = fftProcessor.getPeakNormalized();
     long trackingFrequency = fftProcessor.getTrackingFrequency();
     int signalStrengthIndexSent = fftProcessor.getSignalStrengthIndex();
 
-    // Handle global jfloatArray `result`
-    if (result == nullptr || resultSize != power_shifted.size()) {
-        if (result != nullptr) {
-            env->DeleteGlobalRef(result);
-            result = nullptr;
-        }
-        jfloatArray local = env->NewFloatArray(power_shifted.size());
-        if (local == nullptr) {
-            LOGD("Failed to allocate float array (%zu)", power_shifted.size());
-            return;
-        }
-        result = (jfloatArray) env->NewGlobalRef(local);
-        env->DeleteLocalRef(local);
-        resultSize = power_shifted.size();
+    // Use a LOCAL array instead of the global shared one
+    jfloatArray localResult = env->NewFloatArray(power_shifted.size());
+    if (localResult == nullptr) {
+        if (didAttach) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
+        return;
     }
 
-    // Send power spectrum to Java
-    env->SetFloatArrayRegion(result, 0, power_shifted.size(), power_shifted.data());
-    env->CallVoidMethod(fftCallbackObj, fftCallbackMethod, result);
+    env->SetFloatArrayRegion(localResult, 0, power_shifted.size(), power_shifted.data());
+    env->CallVoidMethod(fftCallbackObj, fftCallbackMethod, localResult);
+    env->DeleteLocalRef(localResult);
 
-    // Send other processed data to Java
     env->CallVoidMethod(strengthCallbackObj, strengthCallbackMethod, signalStrengthIndexSent);
     env->CallVoidMethod(peakCallbackObj, peakCallbackMethod, peakDb);
     env->CallVoidMethod(peakNormalizedCallbackObj, peakNormalizedCallbackMethod, peakNormalized);
-    env->CallVoidMethod(peakFrequencyCallbackObj, peakFrequencyCallbackMethod, trackingFrequency);
+    env->CallVoidMethod(peakFrequencyCallbackObj, peakFrequencyCallbackMethod, (jlong)trackingFrequency);
 
     if (didAttach) {
-        getJavaVM()->DetachCurrentThread();
+        sdr_bridge_internal::gJavaVM->DetachCurrentThread();
     }
 }
 
@@ -646,50 +634,62 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     //THREAD for SSB PART
     // Start SSB worker thread using SSBProcessor
     // Define the C++ callback that handles the JNI part
-    PcmDataCallback pcmDataToJavaCallback = [&](const std::vector<int16_t> &pcm_data) {
-        if (pcmCallbackObj != nullptr && pcmCallbackMethod != nullptr && !pcm_data.empty()) {
-            JNIEnv *env;
-            bool attached = false;
-            // Attach current thread to JVM if not already attached
-            if (sdr_bridge_internal::gJavaVM->GetEnv((void **) &env, JNI_VERSION_1_6) == JNI_EDETACHED) {
-                if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
-                    attached = true;
-                } else {
-                    LOGE("Failed to attach thread to JVM for PCM callback.");
-                    return;
-                }
-            } else if (sdr_bridge_internal::gJavaVM->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
-                LOGE("Failed to get JNIEnv for PCM callback.");
+    PcmDataCallback pcmDataToJavaCallback = [](const std::vector<int16_t>& pcm_data) {
+        if (pcmCallbackObj == nullptr || pcmCallbackMethod == nullptr) return;
+        if (pcm_data.empty()) return;
+
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        if (sdr_bridge_internal::gJavaVM->GetEnv(
+                (void**)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+            if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(
+                    &env, nullptr) != JNI_OK) return;
+            attached = true;
+        }
+
+        // Réutiliser le tableau global si la taille n'a pas changé
+        const jint neededSize = static_cast<jint>(pcm_data.size());
+        if (pcmArray == nullptr || pcmArraySize != neededSize) {
+            if (pcmArray != nullptr) {
+                env->DeleteGlobalRef(pcmArray);
+            }
+            jshortArray local = env->NewShortArray(neededSize);
+            if (local == nullptr) {
+                if (attached) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
                 return;
             }
-
-            jshortArray pcmArray = env->NewShortArray(pcm_data.size());
-            if (pcmArray != nullptr) {
-                env->SetShortArrayRegion(pcmArray, 0, pcm_data.size(), pcm_data.data());
-                env->CallVoidMethod(pcmCallbackObj, pcmCallbackMethod, pcmArray);
-                if (env->ExceptionOccurred()) {
-                    LOGE("Exception during PCM callback to Java.");
-                    env->ExceptionDescribe();
-                    env->ExceptionClear();
-                }
-                env->DeleteLocalRef(pcmArray);
-            }
-
-            if (attached) {
-                sdr_bridge_internal::gJavaVM->DetachCurrentThread();
-            }
+            pcmArray = static_cast<jshortArray>(env->NewGlobalRef(local));
+            env->DeleteLocalRef(local);
+            pcmArraySize = neededSize;
         }
+
+        env->SetShortArrayRegion(pcmArray, 0, neededSize,
+                                 reinterpret_cast<const jshort*>(pcm_data.data()));
+        env->CallVoidMethod(pcmCallbackObj, pcmCallbackMethod, pcmArray);
+
+        if (env->ExceptionOccurred()) env->ExceptionClear();
+        if (attached) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
     };
+
     ssbProcessor.startProcessing(pcmDataToJavaCallback, [=](float strength) {
         if (pulseCallbackObj == nullptr || pulseCallbackMethod == nullptr) return;
+
         JNIEnv* cbEnv = nullptr;
         bool att = false;
-        if (sdr_bridge_internal::gJavaVM->GetEnv((void**)&cbEnv, JNI_VERSION_1_6) == JNI_EDETACHED) {
-            if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(&cbEnv, nullptr) != JNI_OK) return;
+        if (sdr_bridge_internal::gJavaVM->GetEnv(
+                (void**)&cbEnv, JNI_VERSION_1_6) == JNI_EDETACHED) {
+            if (sdr_bridge_internal::gJavaVM->AttachCurrentThread(
+                    &cbEnv, nullptr) != JNI_OK) return;
             att = true;
         }
+
         cbEnv->CallVoidMethod(pulseCallbackObj, pulseCallbackMethod, strength);
-        if (env->ExceptionOccurred()) { cbEnv->ExceptionClear(); }
+
+        // Use cbEnv here — NOT env (env belongs to another thread: thread read())
+        if (cbEnv->ExceptionOccurred()) {
+            cbEnv->ExceptionClear();
+        }
+
         if (att) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
     });
     if (!setupOrUpdateRxStream(BridgeConfig::getInstance().getSampleRate())) {
@@ -788,6 +788,11 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
     if (result != nullptr) {
         env->DeleteGlobalRef(result);
         result = nullptr;
+    }
+    if (pcmArray != nullptr) {
+        env->DeleteGlobalRef(pcmArray);
+        pcmArray = nullptr;
+        pcmArraySize = 0;
     }
     LOGD("Device closed");
 }
