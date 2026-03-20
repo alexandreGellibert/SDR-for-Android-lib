@@ -69,7 +69,9 @@ void SSBProcessor::ssbProcessingThreadEntry(SSBProcessor* processor) {
 
 void SSBProcessor::setPulseConfig(const AudioPulseDetector::Config& cfg) {
     // Reset atomique — le détecteur repart proprement avec la nouvelle config
-    pulseDetector_ = AudioPulseDetector(cfg);
+    std::lock_guard<std::mutex> lock(configMutex_);
+    pendingConfig_ = cfg;
+    pendingConfigUpdate_ = true;
 }
 
 void SSBProcessor::ssbProcessingLoop() {
@@ -90,6 +92,12 @@ void SSBProcessor::ssbProcessingLoop() {
         std::vector<int16_t> pcm; // Buffer for processed PCM audio
         int mode = 1; // Sound mode, will be fetched from BridgeConfig
         bool pulse = false; // Pulse detection flag, if applicable
+
+        std::lock_guard<std::mutex> lock(configMutex_);
+        if (pendingConfigUpdate_) {
+            pulseDetector_ = AudioPulseDetector(pendingConfig_);
+            pendingConfigUpdate_ = false;
+        }
 
         processSSB_opt(data.iq, data.sampleRate, true, pcm, pulse, mode);
 

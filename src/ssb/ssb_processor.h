@@ -45,6 +45,11 @@ private:
     std::thread ssb_worker_thread;
     std::atomic<bool> ssb_worker_running{false};
 
+    std::mutex configMutex_;
+    bool pendingConfigUpdate_ = false;
+    AudioPulseDetector::Config pendingConfig_;
+
+
     // The actual thread function
     static void ssbProcessingThreadEntry(SSBProcessor* processor);
     void ssbProcessingLoop();
