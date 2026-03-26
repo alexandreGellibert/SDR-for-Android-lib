@@ -196,4 +196,8 @@ object SDRBridge  {
      * Sound mode: 0 mute, 1 normal, 2 loud
      */
     external fun setSoundMode(soundMode: Int)
+
+    external fun getAmbientAudioEnergy(): Float
+
+    external fun getCurrentAudioRatio(): Float
 }

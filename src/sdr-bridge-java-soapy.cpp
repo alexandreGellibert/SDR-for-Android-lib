@@ -1057,6 +1057,16 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setPulseConfig(
     ssbProcessor.setPulseConfig(cfg);
 }
 
+extern "C" JNIEXPORT jfloat JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getAmbientAudioEnergy(JNIEnv*, jobject) {
+    return ssbProcessor.getAmbientEnergy();
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_fr_intuite_sdr_bridge_SDRBridge_getCurrentAudioRatio(JNIEnv*, jobject) {
+    return ssbProcessor.getCurrentRatio();
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_getTunerGains(JNIEnv *env, jobject obj) {
     if (!sdrDevice) return nullptr;

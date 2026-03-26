@@ -31,6 +31,8 @@ public:
     void stopProcessing();
     void enqueueData(std::vector<std::complex<float>>&& iq_data, uint32_t sample_rate);
     void setPulseConfig(const AudioPulseDetector::Config& cfg);
+    float getAmbientEnergy() const { return pulseDetector_.ambientEnergy(); }
+    float getCurrentRatio() const { return pulseDetector_.currentRatio(); }
 
 private:
     PcmDataCallback pcmCallback; // C++ callback function
