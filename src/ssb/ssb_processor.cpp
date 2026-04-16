@@ -24,7 +24,7 @@ void SSBProcessor::startProcessing(PcmDataCallback pcm_cb) {
 }
 
 void SSBProcessor::startProcessing(PcmDataCallback pcm_cb,
-                                   std::function<void(float)> pulse_cb) {
+                                   std::function<void(float, int)> pulse_cb) {
     if (ssb_worker_running) {
         __android_log_print(ANDROID_LOG_WARN, LOG_TAG_SSB_BRIDGE, "SSB processing already running.");
         return;
@@ -106,8 +106,10 @@ void SSBProcessor::ssbProcessingLoop() {
             pcmCallback(pcm);
         }
 
-        if (pulseCallback_ && pulseDetector_.process(pcm)) {
-            pulseCallback_(pulseDetector_.lastPulseStrength());
+        pulseDetector_.process(pcm);
+        if (pulseCallback_) {
+            // Pass live_etat (0–5) so the UI can display continuous state
+            pulseCallback_(pulseDetector_.lastPulseStrength(), pulseDetector_.liveEtat());
         }
     }
 }

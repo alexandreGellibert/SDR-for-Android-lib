@@ -41,6 +41,14 @@ public:
     long getTrackingFrequency() const { return static_cast<long>(std::round(trackingFrequency)); }
     int getSignalStrengthIndex() const { return signalStrengthIndexSent; }
 
+    // Max-bin SNR (strongest single bin vs noise)
+    float getMaxBinSnrDb()    const { return maxBinSnrDb; }
+    float getMaxBinSnrSigma() const { return maxBinSnrSigma; }
+
+    // Best 1 kHz band SNR (mean over best 1 kHz sub-window vs noise)
+    float getBest1kHzSnrDb()    const { return best1kHzSnrDb; }
+    float getBest1kHzSnrSigma() const { return best1kHzSnrSigma; }
+
 private:
     // Configuration parameters
     FftProcessorConfig config_;
@@ -52,61 +60,41 @@ private:
     fftwf_complex *circularBuffer = nullptr;
     int currentSampCount = 0;
 
-    float frequence_of_interest = 432000000.0f; // This might become part of config if adjustable
-    int index_f_interest = 5; // This might become part of config if adjustable
+    // Frequency tracking
     float trackingFrequency = 0.0f;
-    float lowTrackingFrequency = -3000.0f; //inf tol -3khz
-    float upperTrackingFrequency = 1000.0f; //sup tol +1khz
     std::vector<float> maxPeakAndFrequency;
     std::chrono::steady_clock::time_point timeOfLastMaxPeak;
     std::chrono::steady_clock::time_point timeOfLastMaxPeakUpdate;
 
-    float refMagnitude = 1.0f; //was set to 50000 initially
+    float refMagnitude = 1.0f;
     float refPower = refMagnitude * refMagnitude;
 
-    std::vector<std::chrono::steady_clock::time_point> signalTimeTable;
+    // Signal detection
+    // Requires `confirmation` consecutive frames above detectionThresholdSigma
+    int   confirmation            = 1;
+    int   peakConfirmed           = 0;
+    float detectionThresholdSigma = 4.0f;  // SNR threshold in σ units
+
+    // signalStrengthIndex: max over a rolling buffer of N frames (remanance)
     std::vector<int> signalStrengthIndexBuffer;
-    int signalStrengthIndexRemanance = 3;
+    int signalStrengthIndexRemanance   = 3;
     int indexsignalStrengthIndexBuffer = 0;
-    int signalWeak = 1;
-    int signalMedium = 5;
-    int signalStrong = 20;
-    int remananceWeak = 0;
-    int remananceMedium = 0;
-    int remananceStrong = 0;
-
-    std::vector<float> noisePercentileBuffer;
-    std::vector<float> noiseMedianBuffer;
-    int noiseBufferSize = 1;
-    int indexNoiseBuffer = 0;
-
-    float noiseSigmaMin = 100;
-    float noiseSigmaMax = 0;
-    float peakNormalizedMax = 0;
-
-    std::vector<float> peakBuffer;
-    std::vector<float> peakNormalizedBuffer;
-    int peakRemanance = 5;
-    int indexPeakBuffer = 0;
-
-    int confirmation = 1;
-    int peakConfirmed = 0;
-
-    std::vector<float> thresholdBuffer;
-    int indexThreshold = 0;
-
-    float maxThreshold = 0;
-    float maxThresholdConfirmed = 0;
-
-    float lvl1Ratio = 0.0f;
-    int loopNB = 0;
-    int lvl1NB = 0;
 
     // Output variables
     std::vector<float> power_shifted_vec;
-    float peakDb = -130.0f;
-    float peakNormalized = 0.0f;
-    int signalStrengthIndexSent = 0;
+    // peakDb         → mean-window SNR in dB  (mean focus power − noise mean) — UI display
+    // peakNormalized → mean-window SNR in σ   (snrDb / noiseσ) — state machine / bars
+    float peakDb             = 0.0f;
+    float peakNormalized     = 0.0f;
+    int   signalStrengthIndexSent = 0;
+
+    // Max-bin SNR outputs (strongest single FFT bin vs noise reference)
+    float maxBinSnrDb    = 0.0f;
+    float maxBinSnrSigma = 0.0f;
+
+    // Best 1 kHz band SNR outputs (mean over the best 1 kHz sub-window vs noise)
+    float best1kHzSnrDb    = 0.0f;
+    float best1kHzSnrSigma = 0.0f;
 
     // Helper functions (private)
     void computePowerSpectrum(fftwf_complex *fft_signal, uint32_t sampCount, float* power_out);

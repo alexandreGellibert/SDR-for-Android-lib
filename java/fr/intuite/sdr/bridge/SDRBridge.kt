@@ -73,6 +73,9 @@ object SDRBridge  {
 
     external fun setPulseConfig(
         burstRatio:    Float,
+        directFactor:  Float,
+        mediumRatioDb: Float,
+        lowRatioDb:    Float,
         minDurationMs: Float,
         maxDurationMs: Float,
         shortWindowMs: Float,
@@ -139,7 +142,9 @@ object SDRBridge  {
         peakNormalizedCallback: (Float) -> Unit,
         peakFrequencyCallback: (Long) -> Unit,
         pcmCallback: (ShortArray) -> Unit,
-        audioPulseCallback: (Float) -> Unit
+        audioPulseCallback: (Float, Int) -> Unit,
+        maxBinCallback: (Float, Float) -> Unit,
+        best1kHzCallback: (Float, Float) -> Unit
     )
 
     external fun stopReading()

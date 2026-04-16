@@ -27,18 +27,18 @@ public:
     ~SSBProcessor();
 
     void startProcessing(PcmDataCallback pcm_cb);
-    void startProcessing(PcmDataCallback pcm_cb, std::function<void(float)> pulse_cb);
+    void startProcessing(PcmDataCallback pcm_cb, std::function<void(float, int)> pulse_cb);
     void stopProcessing();
     void enqueueData(std::vector<std::complex<float>>&& iq_data, uint32_t sample_rate);
     void setPulseConfig(const AudioPulseDetector::Config& cfg);
-    float getAmbientEnergy() const { return pulseDetector_.ambientEnergy(); }
-    float getCurrentRatio() const { return pulseDetector_.currentRatio(); }
+    float getAmbientEnergy() const { return pulseDetector_.lastPulseStrength(); }
+    float getCurrentRatio()  const { return 0.f; }
 
 private:
     PcmDataCallback pcmCallback; // C++ callback function
 
     AudioPulseDetector pulseDetector_;
-    std::function<void(float)> pulseCallback_;  // strength en dB SNR
+    std::function<void(float, int)> pulseCallback_;  // strength (dB SNR) + level (PulseLevel int)
 
     // Thread management
     std::queue<SSB_Data> ssb_queue;

@@ -70,6 +70,10 @@ namespace {
     jmethodID pcmCallbackMethod = nullptr;
     jobject pulseCallbackObj = nullptr;
     jmethodID pulseCallbackMethod = nullptr;
+    jobject maxBinCallbackObj = nullptr;
+    jmethodID maxBinCallbackMethod = nullptr;
+    jobject best1kHzCallbackObj = nullptr;
+    jmethodID best1kHzCallbackMethod = nullptr;
 
     // Global JNI object for passing float arrays back to Java/Kotlin
     jfloatArray result = nullptr;
@@ -434,6 +438,10 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     float peakNormalized = fftProcessor.getPeakNormalized();
     long trackingFrequency = fftProcessor.getTrackingFrequency();
     int signalStrengthIndexSent = fftProcessor.getSignalStrengthIndex();
+    float maxBinSnrDb    = fftProcessor.getMaxBinSnrDb();
+    float maxBinSnrSigma = fftProcessor.getMaxBinSnrSigma();
+    float best1kHzSnrDb    = fftProcessor.getBest1kHzSnrDb();
+    float best1kHzSnrSigma = fftProcessor.getBest1kHzSnrSigma();
 
     // Use a LOCAL array instead of the global shared one
     jfloatArray localResult = env->NewFloatArray(power_shifted.size());
@@ -450,6 +458,8 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     env->CallVoidMethod(peakCallbackObj, peakCallbackMethod, peakDb);
     env->CallVoidMethod(peakNormalizedCallbackObj, peakNormalizedCallbackMethod, peakNormalized);
     env->CallVoidMethod(peakFrequencyCallbackObj, peakFrequencyCallbackMethod, (jlong)trackingFrequency);
+    if (maxBinCallbackObj  != nullptr) env->CallVoidMethod(maxBinCallbackObj,   maxBinCallbackMethod,   maxBinSnrDb,    maxBinSnrSigma);
+    if (best1kHzCallbackObj != nullptr) env->CallVoidMethod(best1kHzCallbackObj, best1kHzCallbackMethod, best1kHzSnrDb, best1kHzSnrSigma);
 
     if (didAttach) {
         sdr_bridge_internal::gJavaVM->DetachCurrentThread();
@@ -595,7 +605,9 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         jobject peakNormalizedCallback,
         jobject peakFrequencyCallback,
         jobject pcmCallback,
-        jobject audioPulseCallback) {
+        jobject audioPulseCallback,
+        jobject maxBinCallback,
+        jobject best1kHzCallback) {
 
     if (sdrDevice == nullptr) {
         LOGD("Device not initialized");
@@ -629,7 +641,15 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
 
     pulseCallbackObj = env->NewGlobalRef(audioPulseCallback);
     jclass pulseClass = env->GetObjectClass(audioPulseCallback);
-    pulseCallbackMethod = env->GetMethodID(pulseClass, "invoke", "(F)V");
+    pulseCallbackMethod = env->GetMethodID(pulseClass, "invoke", "(FI)V");
+
+    maxBinCallbackObj = env->NewGlobalRef(maxBinCallback);
+    jclass maxBinClass = env->GetObjectClass(maxBinCallback);
+    maxBinCallbackMethod = env->GetMethodID(maxBinClass, "invoke", "(FF)V");
+
+    best1kHzCallbackObj = env->NewGlobalRef(best1kHzCallback);
+    jclass best1kHzClass = env->GetObjectClass(best1kHzCallback);
+    best1kHzCallbackMethod = env->GetMethodID(best1kHzClass, "invoke", "(FF)V");
 
     //THREAD for SSB PART
     // Start SSB worker thread using SSBProcessor
@@ -671,7 +691,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         if (attached) sdr_bridge_internal::gJavaVM->DetachCurrentThread();
     };
 
-    ssbProcessor.startProcessing(pcmDataToJavaCallback, [=](float strength) {
+    ssbProcessor.startProcessing(pcmDataToJavaCallback, [=](float strength, int level) {
         if (pulseCallbackObj == nullptr || pulseCallbackMethod == nullptr) return;
 
         JNIEnv* cbEnv = nullptr;
@@ -683,7 +703,8 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
             att = true;
         }
 
-        cbEnv->CallVoidMethod(pulseCallbackObj, pulseCallbackMethod, strength);
+        cbEnv->CallVoidMethod(pulseCallbackObj, pulseCallbackMethod,
+                              static_cast<jfloat>(strength), static_cast<jint>(level));
 
         // Use cbEnv here — NOT env (env belongs to another thread: thread read())
         if (cbEnv->ExceptionOccurred()) {
@@ -784,6 +805,14 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
     if (pcmCallbackObj != nullptr) {
         env->DeleteGlobalRef(pcmCallbackObj);
         pcmCallbackObj = nullptr;
+    }
+    if (maxBinCallbackObj != nullptr) {
+        env->DeleteGlobalRef(maxBinCallbackObj);
+        maxBinCallbackObj = nullptr;
+    }
+    if (best1kHzCallbackObj != nullptr) {
+        env->DeleteGlobalRef(best1kHzCallbackObj);
+        best1kHzCallbackObj = nullptr;
     }
     if (result != nullptr) {
         env->DeleteGlobalRef(result);
@@ -1039,22 +1068,20 @@ extern "C" JNIEXPORT void JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_setPulseConfig(
         JNIEnv*, jobject,
         jfloat burstRatio,
+        jfloat directFactor,
+        jfloat mediumRatioDb,
+        jfloat lowRatioDb,
         jfloat minDurationMs,
         jfloat maxDurationMs,
         jfloat shortWindowMs,
         jfloat longWindowMs,
         jfloat refractoryMs) {
 
-    AudioPulseDetector::Config cfg;
-    cfg.burstRatio    = burstRatio;
-    cfg.minDurationMs = minDurationMs;
-    cfg.maxDurationMs = maxDurationMs;
-    cfg.shortWindowMs = shortWindowMs;
-    cfg.longWindowMs  = longWindowMs;
-    cfg.refractoryMs  = refractoryMs;
-    // sampleRate reste 48000 — fixé par le pipeline SSB
-
-    ssbProcessor.setPulseConfig(cfg);
+    // Nouvelle implémentation PulseEngine : config interne, paramètres legacy ignorés.
+    (void)burstRatio; (void)directFactor; (void)mediumRatioDb; (void)lowRatioDb;
+    (void)minDurationMs; (void)maxDurationMs; (void)shortWindowMs;
+    (void)longWindowMs; (void)refractoryMs;
+    // ssbProcessor.setPulseConfig() — no-op, defaults suffice
 }
 
 extern "C" JNIEXPORT jfloat JNICALL

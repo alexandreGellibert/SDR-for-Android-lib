@@ -7,8 +7,7 @@
 
 // FFTProcessor Constructor
 FFTProcessor::FFTProcessor() {
-    // Initialize vectors that depend on runtime sizes
-    thresholdBuffer.assign(confirmation + 1, 0.0f);
+    signalStrengthIndexBuffer.assign(signalStrengthIndexRemanance, 0);
 }
 
 FFTProcessor::~FFTProcessor() {
@@ -33,16 +32,6 @@ void FFTProcessor::configure(const FftProcessorConfig& config) {
 
     if (maxPeakAndFrequency.empty()) {
         maxPeakAndFrequency = {-130.0f, static_cast<float>(config_.centerFrequency)};
-    }
-    if (peakBuffer.empty()) {
-        peakBuffer.assign(peakRemanance, -130.0);
-    }
-    if (peakNormalizedBuffer.empty()) {
-        peakNormalizedBuffer.assign(peakRemanance, 0.0);
-    }
-    if (signalTimeTable.empty()) {
-        signalTimeTable.push_back(std::chrono::steady_clock::now());
-        signalTimeTable.push_back(std::chrono::steady_clock::now());
     }
     if (signalStrengthIndexBuffer.empty()) {
         signalStrengthIndexBuffer.assign(signalStrengthIndexRemanance, 0);
@@ -130,199 +119,238 @@ void FFTProcessor::shiftPowerSpectrum(const float* power_in, uint32_t sampCount,
     }
 }
 
-void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power_shifted, uint32_t sampleRate, uint32_t centerFrequency) {
+void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power_shifted,
+                                           uint32_t sampleRate, uint32_t centerFrequency) {
 
-    // --- 6.1 BANDWITH definition for PEAK EVALUATION ---
-    float freqPerBin = static_cast<float>(sampleRate) / sampCount;  // Hz per bin
-    float lowerWWBound = centerFrequency - config_.freqFocusRangeKhz * 1000.0f;
-    float upperWWBound = centerFrequency + config_.freqFocusRangeKhz * 1000.0f;
+    const float freqPerBin = static_cast<float>(sampleRate) / static_cast<float>(sampCount);
+    const float X_hz       = config_.freqFocusRangeKhz * 1000.0f;  // focus half-width in Hz
+    const float nyquist    = sampleRate / 2.0f;                     // max offset from centre
 
-    int lowerWWIndex = static_cast<int>((lowerWWBound - (centerFrequency - sampleRate / 2)) / freqPerBin);
-    int upperWWIndex = static_cast<int>((upperWWBound - (centerFrequency - sampleRate / 2)) / freqPerBin);
-    lowerWWIndex = std::max(0, lowerWWIndex);
-    upperWWIndex = sampCount - 1 > upperWWIndex ? upperWWIndex : sampCount - 1;
-    int WW_size = upperWWIndex - lowerWWIndex + 1;
+    // offToBin: signed frequency offset from centre → bin index in shifted spectrum
+    // (bin 0 = centre − nyquist, bin sampCount/2 = centre, bin sampCount−1 = centre + nyquist − freqPerBin)
+    auto offToBin = [&](float offset_hz) -> int {
+        return static_cast<int>((offset_hz + nyquist) / freqPerBin);
+    };
 
-    // --- 6.2 INITIALISATION of variables for SIGNAL PEAK MEASURE ---
-    float totalPower = 0.0f;
-    this->peakDb = -130.0f; // Reset for current processing block
-    int index_peak = 0;
-    std::vector<float> power_shifted_DB(WW_size);
+    // ── 6.1  Focus window ─────────────────────────────────────────────────────
+    const int focusLo  = std::max(0, offToBin(-X_hz));
+    const int focusHi  = std::min(static_cast<int>(sampCount) - 1, offToBin(+X_hz) - 1);
+    const int focusLen = focusHi - focusLo + 1;
+    if (focusLen <= 0) return;
 
-    if (peakBuffer.empty()) {
-        peakBuffer.assign(peakRemanance, -130.0);
-    }
-    if (peakNormalizedBuffer.empty()) {
-        peakNormalizedBuffer.assign(peakRemanance, 0.0);
-    }
+    // ── 6.2  Signal band: mean power + absolute peak bin (for frequency tracking) ──
+    float absPeakDb        = -130.0f;
+    int   peakBinInFocus   = 0;
+    float signalPowerSum   = 0.0f;
 
-    // --- 6.3 SIGNAL PEAK MEASURE ---
-    for (int i = lowerWWIndex; i <= upperWWIndex; i++) {
-        float dB = 10 * log10(power_shifted[i] / refPower);
-        if (dB > this->peakDb) {
-            this->peakDb = dB;
-            index_peak = i - lowerWWIndex;
+    for (int i = focusLo; i <= focusHi; i++) {
+        float p  = power_shifted[i];
+        signalPowerSum += p;
+        float dB = 10.0f * log10f(p / refPower + 1e-20f);
+        if (dB > absPeakDb) {
+            absPeakDb      = dB;
+            peakBinInFocus = i - focusLo;
         }
-        power_shifted_DB[i - lowerWWIndex] = dB;
+    }
+    const float signalPowerDb = 10.0f * log10f((signalPowerSum / focusLen) / refPower + 1e-20f);
+
+    // ── 6.3  Spatial reference windows (OS-CFAR style) ────────────────────────
+    // Each window stores its mean dB AND its bin bounds so we can later pool
+    // the individual bins of the quiet (bottom-40%) windows to estimate σ_bin.
+    const int winBins1k = std::max(1, static_cast<int>(std::ceil(1000.0f / freqPerBin)));
+
+    // Helper: best 1 kHz sliding-window mean (linear) over [lo..hi]
+    auto best1kHzMean = [&](int lo, int hi) -> float {
+        const int len = hi - lo + 1;
+        if (len <= 0) return 0.0f;
+        if (len < winBins1k) {
+            float s = 0.0f;
+            for (int i = lo; i <= hi; i++) s += power_shifted[i];
+            return s / len;
+        }
+        float runSum = 0.0f;
+        for (int i = lo; i < lo + winBins1k; i++) runSum += power_shifted[i];
+        float best = runSum / winBins1k;
+        for (int start = lo + 1; start + winBins1k - 1 <= hi; start++) {
+            runSum += power_shifted[start + winBins1k - 1] - power_shifted[start - 1];
+            const float m = runSum / winBins1k;
+            if (m > best) best = m;
+        }
+        return best;
+    };
+
+    struct RefWindow {
+        float meanDb;
+        float maxBinDb;
+        float best1kDb;
+        int lo, hi;
+    };
+    std::vector<RefWindow> refWindows;
+    refWindows.reserve(10);
+
+    for (int k = 1; k <= 5; k++) {
+        const float nearX = (4 * k - 2) * X_hz;
+        const float farX  =  4 * k      * X_hz;
+        if (farX >= nyquist) break;
+
+        auto collectWindow = [&](int lo, int hi) {
+            if (hi <= lo) return;
+            const int n = hi - lo + 1;
+            float sum = 0.0f, maxP = 0.0f;
+            for (int i = lo; i <= hi; i++) {
+                sum += power_shifted[i];
+                if (power_shifted[i] > maxP) maxP = power_shifted[i];
+            }
+            refWindows.push_back({
+                10.0f * log10f((sum / n)                    / refPower + 1e-20f),
+                10.0f * log10f(maxP                          / refPower + 1e-20f),
+                10.0f * log10f(best1kHzMean(lo, hi)          / refPower + 1e-20f),
+                lo, hi
+            });
+        };
+
+        collectWindow(std::max(0, offToBin(+nearX)),
+                      std::min(static_cast<int>(sampCount) - 1, offToBin(+farX) - 1));
+        collectWindow(std::max(0, offToBin(-farX)),
+                      std::min(static_cast<int>(sampCount) - 1, offToBin(-nearX) - 1));
     }
 
-    peakBuffer[indexPeakBuffer] = this->peakDb;
-
-    // --- 6.4 NOISE EVALUATION ---
-    std::sort(power_shifted_DB.begin(), power_shifted_DB.end());
-    float noiseMedian = power_shifted_DB[WW_size / 2];
-
-    std::vector<float> gapTable(WW_size);
-    for (int i = 0; i < WW_size; i++) {
-        gapTable[i] = std::fabs(power_shifted_DB[i] - noiseMedian);
+    const int nRef  = static_cast<int>(refWindows.size());
+    const bool valid = (nRef >= 2);
+    if (!valid) {
+        this->peakDb = this->peakNormalized = 0.0f;
+        maxBinSnrDb = maxBinSnrSigma = best1kHzSnrDb = best1kHzSnrSigma = 0.0f;
+        // (frequency tracking below still runs)
+        goto freq_tracking;
     }
-    std::sort(gapTable.begin(), gapTable.end());
-    float noiseSigma = 1.4816f * gapTable[WW_size / 2];
 
-    // --- 6.5 SIGNAL PEAK NORMALIZED MEASURE ---
-    this->peakNormalized = this->peakDb - noiseMedian;
-    peakNormalizedBuffer[indexPeakBuffer] = this->peakNormalized;
-    indexPeakBuffer = (indexPeakBuffer + 1) % peakRemanance;
+    // Sort windows by mean power → quietest first
+    std::sort(refWindows.begin(), refWindows.end(),
+              [](const RefWindow& a, const RefWindow& b){ return a.meanDb < b.meanDb; });
 
-    thresholdBuffer[indexThreshold] = this->peakNormalized / noiseSigma;
-    if (this->peakNormalized > peakNormalizedMax) {
-        peakNormalizedMax = this->peakNormalized;
-    }
-    if (thresholdBuffer[indexThreshold] > maxThreshold) {
-        maxThreshold = thresholdBuffer[indexThreshold];
-    }
-    float minVal = *std::min_element(thresholdBuffer.begin(), thresholdBuffer.end());
-    if (minVal > maxThresholdConfirmed) {
-        maxThresholdConfirmed = minVal;
-    }
-    indexThreshold = (indexThreshold + 1) % (confirmation + 1);
+    {
+        const int nBottom = std::max(1, static_cast<int>(nRef * 0.4f));
 
-    // --- 6.6 INIT of tracking frequency ---
-    if (trackingFrequency == 0.0f) {
+        // ── 6.4a  Mean-energy noise: bottom-40% window means, MAD ────────────
+        {
+            float mean = 0.0f;
+            for (int i = 0; i < nBottom; i++) mean += refWindows[i].meanDb;
+            mean /= nBottom;
+            std::vector<float> gaps(nBottom);
+            for (int i = 0; i < nBottom; i++) gaps[i] = std::fabs(refWindows[i].meanDb - mean);
+            std::sort(gaps.begin(), gaps.end());
+            float sigma = std::max(1.4816f * gaps[nBottom / 2], 0.5f);
+
+            const float snrDb    = signalPowerDb - mean;
+            this->peakDb         = snrDb;
+            this->peakNormalized = snrDb / sigma;
+        }
+
+        // ── 6.4b  σ_bin: pool all individual bins from the quiet windows ─────
+        // The bottom-40% windows contain only noise → their per-bin dB values
+        // give a direct, unbiased estimate of the per-bin noise distribution.
+        std::vector<float> pooledBinDb;
+        pooledBinDb.reserve(nBottom * 70);  // approx capacity
+        for (int j = 0; j < nBottom; j++) {
+            for (int i = refWindows[j].lo; i <= refWindows[j].hi; i++)
+                pooledBinDb.push_back(10.0f * log10f(power_shifted[i] / refPower + 1e-20f));
+        }
+        float sigmaBin = 1.0f;  // safe default
+        float perBinMean = 0.0f;
+        if (!pooledBinDb.empty()) {
+            for (float v : pooledBinDb) perBinMean += v;
+            perBinMean /= static_cast<float>(pooledBinDb.size());
+            std::vector<float> gaps(pooledBinDb.size());
+            for (size_t i = 0; i < pooledBinDb.size(); i++)
+                gaps[i] = std::fabs(pooledBinDb[i] - perBinMean);
+            std::sort(gaps.begin(), gaps.end());
+            sigmaBin = std::max(1.4816f * gaps[gaps.size() / 2], 1.0f);  // floor 1 dB
+        }
+
+        // ── 6.4c  Max-bin SNR: Gumbel correction using σ_bin ─────────────────
+        // For max of focusLen i.i.d. ~Gaussian(perBinMean, σ_bin) bins:
+        //   E[max]    ≈ perBinMean + σ_bin × √(2 ln focusLen)      (Gumbel location)
+        //   σ(max)    ≈ σ_bin × π / (√6 × √(2 ln focusLen))        (Gumbel scale)
+        // In pure noise: maxBinSnrSigma ≈ 0 by construction.
+        {
+            const float logN       = std::log(static_cast<float>(focusLen));
+            const float sqrt2logN  = std::sqrt(2.0f * logN);
+            const float gumbelLoc  = perBinMean + sigmaBin * sqrt2logN;
+            const float gumbelSig  = std::max(sigmaBin * 3.14159f / (std::sqrt(6.0f) * sqrt2logN), 0.5f);
+            maxBinSnrDb    = absPeakDb - gumbelLoc;
+            maxBinSnrSigma = maxBinSnrDb / gumbelSig;
+        }
+
+        // ── 6.4d  Best-1kHz SNR: bottom-40% best-1kHz reference + σ_bin floor ─
+        // Sigma floor = σ_bin/√winBins1k (CLT lower bound for a mean of winBins1k bins).
+        {
+            float mean1k = 0.0f;
+            for (int i = 0; i < nBottom; i++) mean1k += refWindows[i].best1kDb;
+            mean1k /= nBottom;
+            std::vector<float> gaps(nBottom);
+            for (int i = 0; i < nBottom; i++) gaps[i] = std::fabs(refWindows[i].best1kDb - mean1k);
+            std::sort(gaps.begin(), gaps.end());
+            const float sigmaFloor1k = sigmaBin / std::sqrt(static_cast<float>(winBins1k));
+            const float sigma1k = std::max({1.4816f * gaps[nBottom / 2], sigmaFloor1k, 0.5f});
+
+            const float focusBest1kLinear = best1kHzMean(focusLo, focusHi);
+            if (focusBest1kLinear > 0.0f) {
+                const float focusBest1kDb = 10.0f * log10f(focusBest1kLinear / refPower + 1e-20f);
+                best1kHzSnrDb    = focusBest1kDb - mean1k;
+                best1kHzSnrSigma = best1kHzSnrDb / sigma1k;
+            } else {
+                best1kHzSnrDb = best1kHzSnrSigma = 0.0f;
+            }
+        }
+    }
+
+    freq_tracking:
+
+    // ── 6.5  Frequency tracking (uses internal absolute peak) ─────────────────
+    if (trackingFrequency == 0.0f)
         trackingFrequency = static_cast<float>(centerFrequency);
-    }
 
     if (sdr_bridge_internal::isCenterFrequencyChanged) {
-        trackingFrequency = centerFrequency ;
-        sdr_bridge_internal::isCenterFrequencyChanged = false ;
+        trackingFrequency = static_cast<float>(centerFrequency);
+        sdr_bridge_internal::isCenterFrequencyChanged = false;
     }
 
-    // For now, assume trackingFrequency is updated only when explicitly told to.
-    if (maxPeakAndFrequency.empty()) {
+    if (maxPeakAndFrequency.empty())
         maxPeakAndFrequency = {-130.0f, static_cast<float>(centerFrequency)};
+
+    if (valid && absPeakDb > maxPeakAndFrequency[0]) {
+        maxPeakAndFrequency[0] = absPeakDb;
+        // Absolute frequency of the peak bin
+        maxPeakAndFrequency[1] = static_cast<float>(
+            (focusLo + peakBinInFocus) * freqPerBin + (centerFrequency - nyquist));
+        timeOfLastMaxPeak = std::chrono::steady_clock::now();
     }
 
-    // --- 6.7 DEFINITION OF SIGNAL DETECTED ---
-    int signalEval = 0;
-    loopNB++;
-
-    if (this->peakDb > noiseMedian + 4.0 * noiseSigma) {
-        if (peakConfirmed >= confirmation) {
-            if (this->peakDb > maxPeakAndFrequency[0]) {
-                maxPeakAndFrequency[0] = this->peakDb;
-                maxPeakAndFrequency[1] = index_peak * freqPerBin + lowerWWBound;
-                timeOfLastMaxPeak = std::chrono::steady_clock::now();
-            }
-            signalEval = signalStrong + 1;
-            lvl1NB++;
-            lvl1Ratio = static_cast<float>(lvl1NB) / loopNB;
-        } else {
-            peakConfirmed++;
+    {
+        auto now         = std::chrono::steady_clock::now();
+        auto msSincePeak = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               now - timeOfLastMaxPeak).count();
+        if (timeOfLastMaxPeakUpdate < timeOfLastMaxPeak && msSincePeak > 300) {
+            trackingFrequency       = maxPeakAndFrequency[1];
+            timeOfLastMaxPeakUpdate = now;
+            maxPeakAndFrequency[0]  = -130.0f;
         }
+    }
+
+    // ── 6.6  Signal detection → signalStrengthIndex (binary 0 / 3) ───────────
+    // Two consecutive frames above detectionThresholdSigma required (confirmation = 1).
+    const bool aboveThreshold = valid && (this->peakNormalized >= detectionThresholdSigma);
+
+    if (aboveThreshold) {
+        if (peakConfirmed < confirmation) peakConfirmed++;
     } else {
         peakConfirmed = 0;
     }
 
-    auto now = std::chrono::steady_clock::now();
-    auto delaySincePeak = std::chrono::duration_cast<std::chrono::milliseconds>(now - timeOfLastMaxPeak);
-    auto delaySincePeak_ms = delaySincePeak.count();
+    const int currentSSI = (aboveThreshold && peakConfirmed >= confirmation) ? 3 : 0;
 
-    // TODO : triggered even if no peak! To be investigated
-    if (timeOfLastMaxPeakUpdate < timeOfLastMaxPeak && delaySincePeak_ms > 300) {
-        trackingFrequency = maxPeakAndFrequency[1];
-        timeOfLastMaxPeakUpdate = std::chrono::steady_clock::now();
-        maxPeakAndFrequency[0] = -130.0f;
-    }
-
-    if (signalTimeTable.empty()) {
-        signalTimeTable.push_back(std::chrono::steady_clock::now());
-        signalTimeTable.push_back(std::chrono::steady_clock::now());
-    }
-
-    int currentSignalStrengthIndex = 0;
-
-    if (remananceStrong > 0) {
-        currentSignalStrengthIndex = 3;
-        remananceStrong = std::max(0, remananceStrong - 1);
-        remananceMedium = std::max(0, remananceMedium - 1);
-        remananceWeak = std::max(0, remananceWeak - 1);
-    } else {
-        auto duration1 = std::chrono::steady_clock::now() - signalTimeTable[0];
-        auto duration2 = signalTimeTable[0] - signalTimeTable[1];
-        auto duration1_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration1).count();
-        auto duration2_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration2).count();
-        long long abs_diff = std::abs(duration1_ms - duration2_ms);
-
-        if (signalEval >= signalStrong ||
-            (signalMedium <= signalEval && signalEval < signalStrong && abs_diff < 300)) {
-            currentSignalStrengthIndex = 3;
-            remananceStrong = 3;
-            if (duration1_ms > 666) {
-                signalTimeTable.push_back(std::chrono::steady_clock::now());
-            }
-        } else {
-            if (remananceMedium > 0) {
-                currentSignalStrengthIndex = 2;
-                remananceMedium = std::max(0, remananceMedium - 1);
-                remananceWeak = std::max(0, remananceWeak - 1);
-            } else {
-                duration1 = std::chrono::steady_clock::now() - signalTimeTable[0];
-                duration2 = signalTimeTable[0] - signalTimeTable[1];
-                duration1_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration1).count();
-                duration2_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration2).count();
-                abs_diff = std::abs(duration1_ms - duration2_ms);
-
-                if (signalEval >= signalMedium ||
-                    (signalWeak <= signalEval && signalEval < signalMedium && abs_diff < 300)) {
-                    currentSignalStrengthIndex = 2;
-                    remananceMedium = 2;
-                    if (duration1_ms > 666) {
-                        signalTimeTable.push_back(std::chrono::steady_clock::now());
-                    }
-                } else {
-                    if (remananceWeak > 0) {
-                        currentSignalStrengthIndex = 1;
-                        remananceWeak = std::max(0, remananceWeak - 1);
-                    } else {
-                        if (signalEval >= signalWeak) {
-                            remananceWeak = 1;
-                            currentSignalStrengthIndex = 1;
-                            if (duration1_ms > 666) {
-                                signalTimeTable.push_back(std::chrono::steady_clock::now());
-                            }
-                        } else {
-                            remananceStrong = std::max(0, remananceStrong - 1);
-                            remananceMedium = std::max(0, remananceMedium - 1);
-                            remananceWeak = std::max(0, remananceWeak - 1);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (signalStrengthIndexBuffer.empty()) {
-        signalStrengthIndexBuffer.assign(signalStrengthIndexRemanance, 0);
-    }
-    signalStrengthIndexBuffer[indexsignalStrengthIndexBuffer] = currentSignalStrengthIndex;
+    signalStrengthIndexBuffer[indexsignalStrengthIndexBuffer] = currentSSI;
     indexsignalStrengthIndexBuffer = (indexsignalStrengthIndexBuffer + 1) % signalStrengthIndexRemanance;
-
-    auto signalStrengthIndexMaxIter = std::max_element(signalStrengthIndexBuffer.begin(), signalStrengthIndexBuffer.end());
-    this->signalStrengthIndexSent = *signalStrengthIndexMaxIter;
-
-    int sum = std::accumulate(signalStrengthIndexBuffer.begin(), signalStrengthIndexBuffer.end(), 0);
-    double signalStrengthIndexMean = static_cast<double>(sum) / signalStrengthIndexBuffer.size();
-    if (*signalStrengthIndexMaxIter == 1 && signalStrengthIndexMean < 0.8) {
-        this->signalStrengthIndexSent = 0;
-    }
+    this->signalStrengthIndexSent  = *std::max_element(
+        signalStrengthIndexBuffer.begin(), signalStrengthIndexBuffer.end());
 }
