@@ -967,7 +967,7 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setSamplesPerReading(JNIEnv *env, jobject o
 extern "C" JNIEXPORT void JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_setFrequencyFocusRange(JNIEnv *env, jobject obj, jint frequencyFocusRange) {
     isUpdatingConfiguration = true;
-    BridgeConfig::getInstance().setSamplesPerReading(frequencyFocusRange);
+    BridgeConfig::getInstance().setFreqFocusRangeKhz(frequencyFocusRange);
     LOGD("New Frequency Focus Range %ld", frequencyFocusRange);
     isUpdatingConfiguration = false;
 }
