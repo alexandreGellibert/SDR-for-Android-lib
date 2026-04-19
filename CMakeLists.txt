@@ -4,9 +4,11 @@ project("sdr-bridge-java-soapy-lib")
 
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 
-# Force 16 KB segment alignment
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
+# Force 16 KB segment alignment for Android 15 compatibility
+add_link_options("-Wl,-z,max-page-size=16384")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
 # =======================
 # SoapySDR configuration
@@ -37,7 +39,7 @@ set(ENABLE_REMOTE OFF CACHE BOOL "" FORCE)
 #FTDI to be used for Lime Mini 1.0, 2.0.
 set(ENABLE_FTDI ON CACHE BOOL "" FORCE)
 #FX3 to be used for LimeSDR USB (not tested)
-set(ENABLE_FX3 OFF CACHE BOOL "" FORCE)
+set(ENABLE_FX3 ON CACHE BOOL "" FORCE)
 set(ENABLE_SOAPY_LMS7 ON CACHE BOOL "" FORCE)
 
 # LibUSB

@@ -1,5 +1,6 @@
 package fr.intuite.sdr.bridge
 
+import androidx.annotation.Keep
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import fr.intuite.sdr.DeviceCategory
@@ -35,6 +36,7 @@ data class SDRConfig(
     val soundMode: Int = 1
 )
 
+@Keep
 object SDRBridge  {
 
     // LogListener interface for handling native log messages
@@ -57,6 +59,7 @@ object SDRBridge  {
 
     // Static method called from C++ to forward log messages
     @JvmStatic
+    @Keep
     fun logFromNative(message: String) {
         logListener?.onLog(message) ?: android.util.Log.d("RtlSdrBridge", "C++: $message")
     }

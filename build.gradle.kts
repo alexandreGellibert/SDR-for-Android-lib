@@ -13,6 +13,9 @@ android {
             cmake {
                 cppFlags.addAll(listOf("-frtti", "-fexceptions"))
                 arguments.add("-DANDROID_STL=c++_shared")
+                arguments.add("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384")
+                arguments.add("-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384")
+                arguments.add("-DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=16384")
             }
         }
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64") }
