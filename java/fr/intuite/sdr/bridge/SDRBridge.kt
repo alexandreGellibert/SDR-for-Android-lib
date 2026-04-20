@@ -140,12 +140,13 @@ object SDRBridge  {
 
     external fun read(
         fftCallback: (FloatArray) -> Unit,
-        signalStrengthCallback: (Int) -> Unit,
-        peakCallback: (Float) -> Unit,
-        peakNormalizedCallback: (Float) -> Unit,
+        detectionFlagCallback: (Int) -> Unit,
+        meanSnrCallback: (Float) -> Unit,
+        meanSnrSigmaCallback: (Float) -> Unit,
         peakFrequencyCallback: (Long) -> Unit,
         pcmCallback: (ShortArray) -> Unit,
         audioPulseCallback: (Float, Int) -> Unit,
+        peakAboveNoiseMeanCallback: (Float) -> Unit,
         maxBinCallback: (Float, Float) -> Unit,
         best1kHzCallback: (Float, Float) -> Unit
     )

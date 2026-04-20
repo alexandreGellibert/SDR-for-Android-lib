@@ -7,7 +7,7 @@
 
 // FFTProcessor Constructor
 FFTProcessor::FFTProcessor() {
-    signalStrengthIndexBuffer.assign(signalStrengthIndexRemanance, 0);
+    detectionFlagBuffer.assign(detectionFlagRemanance, 0);
 }
 
 FFTProcessor::~FFTProcessor() {
@@ -33,8 +33,8 @@ void FFTProcessor::configure(const FftProcessorConfig& config) {
     if (maxPeakAndFrequency.empty()) {
         maxPeakAndFrequency = {-130.0f, static_cast<float>(config_.centerFrequency)};
     }
-    if (signalStrengthIndexBuffer.empty()) {
-        signalStrengthIndexBuffer.assign(signalStrengthIndexRemanance, 0);
+    if (detectionFlagBuffer.empty()) {
+        detectionFlagBuffer.assign(detectionFlagRemanance, 0);
     }
 }
 
@@ -101,7 +101,7 @@ void FFTProcessor::process(const std::complex<float> *input_buf, uint32_t input_
     // This part requires access to config_ and updates member variables
     evaluateSignalStrength(sampCount, power_shifted_vec.data(), config_.sampleRate, config_.centerFrequency);
 
-    // After this, getters can be used to retrieve results like peakDb, peakNormalized, etc.
+    // After this, getters can be used to retrieve results like peakDb, meanSnrSigma, etc.
 }
 
 // Helper function definitions
@@ -218,8 +218,8 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
     const int nRef  = static_cast<int>(refWindows.size());
     const bool valid = (nRef >= 2);
     if (!valid) {
-        this->peakDb = this->peakNormalized = 0.0f;
-        maxBinSnrDb = maxBinSnrSigma = best1kHzSnrDb = best1kHzSnrSigma = 0.0f;
+        this->meanSnrDb = this->meanSnrSigma = 0.0f;
+        peakAboveNoiseMeanDb = maxBinSnrDb = maxBinSnrSigma = best1kHzSnrDb = best1kHzSnrSigma = 0.0f;
         // (frequency tracking below still runs)
         goto freq_tracking;
     }
@@ -242,8 +242,8 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
             float sigma = std::max(1.4816f * gaps[nBottom / 2], 0.5f);
 
             const float snrDb    = signalPowerDb - mean;
-            this->peakDb         = snrDb;
-            this->peakNormalized = snrDb / sigma;
+            this->meanSnrDb         = snrDb;
+            this->meanSnrSigma = snrDb / sigma;
         }
 
         // ── 6.4b  σ_bin: pool all individual bins from the quiet windows ─────
@@ -266,6 +266,11 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
             std::sort(gaps.begin(), gaps.end());
             sigmaBin = std::max(1.4816f * gaps[gaps.size() / 2], 1.0f);  // floor 1 dB
         }
+
+        // ── 6.4b²  Peak-above-noise-mean: max bin in focus vs per-bin noise mean ──
+        // Raw dB headroom — no Gumbel correction, no sigma normalization.
+        // In pure noise ≈ +16 dB (Gumbel expected offset); grows with signal strength.
+        peakAboveNoiseMeanDb = absPeakDb - perBinMean;
 
         // ── 6.4c  Max-bin SNR: Gumbel correction using σ_bin ─────────────────
         // For max of focusLen i.i.d. ~Gaussian(perBinMean, σ_bin) bins:
@@ -337,9 +342,9 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
         }
     }
 
-    // ── 6.6  Signal detection → signalStrengthIndex (binary 0 / 3) ───────────
+    // ── 6.6  Signal detection → detectionFlag (binary 0 / 3) ───────────
     // Two consecutive frames above detectionThresholdSigma required (confirmation = 1).
-    const bool aboveThreshold = valid && (this->peakNormalized >= detectionThresholdSigma);
+    const bool aboveThreshold = valid && (this->meanSnrSigma >= detectionThresholdSigma);
 
     if (aboveThreshold) {
         if (peakConfirmed < confirmation) peakConfirmed++;
@@ -347,10 +352,10 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
         peakConfirmed = 0;
     }
 
-    const int currentSSI = (aboveThreshold && peakConfirmed >= confirmation) ? 3 : 0;
+    const int currentFlag = (aboveThreshold && peakConfirmed >= confirmation) ? 3 : 0;
 
-    signalStrengthIndexBuffer[indexsignalStrengthIndexBuffer] = currentSSI;
-    indexsignalStrengthIndexBuffer = (indexsignalStrengthIndexBuffer + 1) % signalStrengthIndexRemanance;
-    this->signalStrengthIndexSent  = *std::max_element(
-        signalStrengthIndexBuffer.begin(), signalStrengthIndexBuffer.end());
+    detectionFlagBuffer[indexdetectionFlagBuffer] = currentFlag;
+    indexdetectionFlagBuffer = (indexdetectionFlagBuffer + 1) % detectionFlagRemanance;
+    this->detectionFlagSent  = *std::max_element(
+        detectionFlagBuffer.begin(), detectionFlagBuffer.end());
 }

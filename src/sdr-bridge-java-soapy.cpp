@@ -58,18 +58,20 @@ namespace {
     // Definition of global variables
     jobject fftCallbackObj = nullptr;
     jmethodID fftCallbackMethod = nullptr;
-    jobject strengthCallbackObj = nullptr;
-    jmethodID strengthCallbackMethod = nullptr;
-    jobject peakCallbackObj = nullptr;
-    jmethodID peakCallbackMethod = nullptr;
-    jobject peakNormalizedCallbackObj = nullptr;
-    jmethodID peakNormalizedCallbackMethod = nullptr;
+    jobject detectionFlagCallbackObj = nullptr;
+    jmethodID detectionFlagCallbackMethod = nullptr;
+    jobject meanSnrCallbackObj = nullptr;
+    jmethodID meanSnrCallbackMethod = nullptr;
+    jobject meanSnrSigmaCallbackObj = nullptr;
+    jmethodID meanSnrSigmaCallbackMethod = nullptr;
     jobject peakFrequencyCallbackObj = nullptr;
     jmethodID peakFrequencyCallbackMethod = nullptr;
     jobject pcmCallbackObj = nullptr;
     jmethodID pcmCallbackMethod = nullptr;
     jobject pulseCallbackObj = nullptr;
     jmethodID pulseCallbackMethod = nullptr;
+    jobject peakAboveNoiseMeanCallbackObj = nullptr;
+    jmethodID peakAboveNoiseMeanCallbackMethod = nullptr;
     jobject maxBinCallbackObj = nullptr;
     jmethodID maxBinCallbackMethod = nullptr;
     jobject best1kHzCallbackObj = nullptr;
@@ -434,10 +436,11 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     fftProcessor.process(buf, len);
 
     const std::vector<float> &power_shifted = fftProcessor.getPowerSpectrum();
-    float peakDb = fftProcessor.getPeakDb();
-    float peakNormalized = fftProcessor.getPeakNormalized();
+    float meanSnrDb = fftProcessor.getMeanSnrDb();
+    float meanSnrSigma = fftProcessor.getMeanSnrSigma();
     long trackingFrequency = fftProcessor.getTrackingFrequency();
-    int signalStrengthIndexSent = fftProcessor.getSignalStrengthIndex();
+    int detectionFlag = fftProcessor.getDetectionFlag();
+    float peakAboveNoiseMeanDb = fftProcessor.getPeakAboveNoiseMeanDb();
     float maxBinSnrDb    = fftProcessor.getMaxBinSnrDb();
     float maxBinSnrSigma = fftProcessor.getMaxBinSnrSigma();
     float best1kHzSnrDb    = fftProcessor.getBest1kHzSnrDb();
@@ -454,10 +457,11 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     env->CallVoidMethod(fftCallbackObj, fftCallbackMethod, localResult);
     env->DeleteLocalRef(localResult);
 
-    env->CallVoidMethod(strengthCallbackObj, strengthCallbackMethod, signalStrengthIndexSent);
-    env->CallVoidMethod(peakCallbackObj, peakCallbackMethod, peakDb);
-    env->CallVoidMethod(peakNormalizedCallbackObj, peakNormalizedCallbackMethod, peakNormalized);
+    env->CallVoidMethod(detectionFlagCallbackObj, detectionFlagCallbackMethod, detectionFlag);
+    env->CallVoidMethod(meanSnrCallbackObj, meanSnrCallbackMethod, meanSnrDb);
+    env->CallVoidMethod(meanSnrSigmaCallbackObj, meanSnrSigmaCallbackMethod, meanSnrSigma);
     env->CallVoidMethod(peakFrequencyCallbackObj, peakFrequencyCallbackMethod, (jlong)trackingFrequency);
+    if (peakAboveNoiseMeanCallbackObj != nullptr) env->CallVoidMethod(peakAboveNoiseMeanCallbackObj, peakAboveNoiseMeanCallbackMethod, peakAboveNoiseMeanDb);
     if (maxBinCallbackObj  != nullptr) env->CallVoidMethod(maxBinCallbackObj,   maxBinCallbackMethod,   maxBinSnrDb,    maxBinSnrSigma);
     if (best1kHzCallbackObj != nullptr) env->CallVoidMethod(best1kHzCallbackObj, best1kHzCallbackMethod, best1kHzSnrDb, best1kHzSnrSigma);
 
@@ -600,12 +604,13 @@ extern "C" JNIEXPORT void JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_read(
         JNIEnv *env, jobject thiz,
         jobject fftCallback,
-        jobject signalStrengthCallback,
-        jobject peakCallback,
-        jobject peakNormalizedCallback,
+        jobject detectionFlagCallback,
+        jobject meanSnrCallback,
+        jobject meanSnrSigmaCallback,
         jobject peakFrequencyCallback,
         jobject pcmCallback,
         jobject audioPulseCallback,
+        jobject peakAboveNoiseMeanCallback,
         jobject maxBinCallback,
         jobject best1kHzCallback) {
 
@@ -619,17 +624,17 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     jclass fftCallbackClass = env->GetObjectClass(fftCallback);
     fftCallbackMethod = env->GetMethodID(fftCallbackClass, "invoke", "([F)V");
 
-    strengthCallbackObj = env->NewGlobalRef(signalStrengthCallback);
-    jclass strengthCallbackClass = env->GetObjectClass(signalStrengthCallback);
-    strengthCallbackMethod = env->GetMethodID(strengthCallbackClass, "invoke", "(I)V");
+    detectionFlagCallbackObj = env->NewGlobalRef(detectionFlagCallback);
+    jclass detectionFlagCallbackClass = env->GetObjectClass(detectionFlagCallback);
+    detectionFlagCallbackMethod = env->GetMethodID(detectionFlagCallbackClass, "invoke", "(I)V");
 
-    peakCallbackObj = env->NewGlobalRef(peakCallback);
-    jclass peakCallbackClass = env->GetObjectClass(peakCallback);
-    peakCallbackMethod = env->GetMethodID(peakCallbackClass, "invoke", "(F)V");
+    meanSnrCallbackObj = env->NewGlobalRef(meanSnrCallback);
+    jclass meanSnrCallbackClass = env->GetObjectClass(meanSnrCallback);
+    meanSnrCallbackMethod = env->GetMethodID(meanSnrCallbackClass, "invoke", "(F)V");
 
-    peakNormalizedCallbackObj = env->NewGlobalRef(peakNormalizedCallback);
-    jclass peakNormalizedCallbackClass = env->GetObjectClass(peakNormalizedCallback);
-    peakNormalizedCallbackMethod = env->GetMethodID(peakNormalizedCallbackClass, "invoke", "(F)V");
+    meanSnrSigmaCallbackObj = env->NewGlobalRef(meanSnrSigmaCallback);
+    jclass meanSnrSigmaCallbackClass = env->GetObjectClass(meanSnrSigmaCallback);
+    meanSnrSigmaCallbackMethod = env->GetMethodID(meanSnrSigmaCallbackClass, "invoke", "(F)V");
 
     peakFrequencyCallbackObj = env->NewGlobalRef(peakFrequencyCallback);
     jclass peakFrequencyCallbackClass = env->GetObjectClass(peakFrequencyCallback);
@@ -642,6 +647,10 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     pulseCallbackObj = env->NewGlobalRef(audioPulseCallback);
     jclass pulseClass = env->GetObjectClass(audioPulseCallback);
     pulseCallbackMethod = env->GetMethodID(pulseClass, "invoke", "(FI)V");
+
+    peakAboveNoiseMeanCallbackObj = env->NewGlobalRef(peakAboveNoiseMeanCallback);
+    jclass peakAboveNoiseMeanCallbackClass = env->GetObjectClass(peakAboveNoiseMeanCallback);
+    peakAboveNoiseMeanCallbackMethod = env->GetMethodID(peakAboveNoiseMeanCallbackClass, "invoke", "(F)V");
 
     maxBinCallbackObj = env->NewGlobalRef(maxBinCallback);
     jclass maxBinClass = env->GetObjectClass(maxBinCallback);
@@ -786,25 +795,29 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
         env->DeleteGlobalRef(fftCallbackObj);
         fftCallbackObj = nullptr;
     }
-    if (strengthCallbackObj != nullptr) {
-        env->DeleteGlobalRef(strengthCallbackObj);
-        strengthCallbackObj = nullptr;
+    if (detectionFlagCallbackObj != nullptr) {
+        env->DeleteGlobalRef(detectionFlagCallbackObj);
+        detectionFlagCallbackObj = nullptr;
     }
     if (peakFrequencyCallbackObj != nullptr) {
         env->DeleteGlobalRef(peakFrequencyCallbackObj);
         peakFrequencyCallbackObj = nullptr;
     }
-    if (peakCallbackObj != nullptr) {
-        env->DeleteGlobalRef(peakCallbackObj);
-        peakCallbackObj = nullptr;
+    if (meanSnrCallbackObj != nullptr) {
+        env->DeleteGlobalRef(meanSnrCallbackObj);
+        meanSnrCallbackObj = nullptr;
     }
-    if (peakNormalizedCallbackObj != nullptr) {
-        env->DeleteGlobalRef(peakNormalizedCallbackObj);
-        peakNormalizedCallbackObj = nullptr;
+    if (meanSnrSigmaCallbackObj != nullptr) {
+        env->DeleteGlobalRef(meanSnrSigmaCallbackObj);
+        meanSnrSigmaCallbackObj = nullptr;
     }
     if (pcmCallbackObj != nullptr) {
         env->DeleteGlobalRef(pcmCallbackObj);
         pcmCallbackObj = nullptr;
+    }
+    if (peakAboveNoiseMeanCallbackObj != nullptr) {
+        env->DeleteGlobalRef(peakAboveNoiseMeanCallbackObj);
+        peakAboveNoiseMeanCallbackObj = nullptr;
     }
     if (maxBinCallbackObj != nullptr) {
         env->DeleteGlobalRef(maxBinCallbackObj);

@@ -10,10 +10,10 @@
 // Define a struct to hold all the output parameters
 struct FftProcessOutput {
     std::vector<float> powerSpectrum; // Shifted power spectrum
-    float peakDb;
-    float peakNormalized;
+    float meanSnrDb;
+    float meanSnrSigma;
     long trackingFrequency;
-    int signalStrengthIndex;
+    int detectionFlag;
 };
 
 // Define a struct to hold all the configuration parameters
@@ -36,12 +36,13 @@ public:
 
     // Getters for results
     const std::vector<float>& getPowerSpectrum() const { return power_shifted_vec; }
-    float getPeakDb() const { return peakDb; }
-    float getPeakNormalized() const { return peakNormalized; }
+    float getMeanSnrDb() const { return meanSnrDb; }
+    float getMeanSnrSigma() const { return meanSnrSigma; }
     long getTrackingFrequency() const { return static_cast<long>(std::round(trackingFrequency)); }
-    int getSignalStrengthIndex() const { return signalStrengthIndexSent; }
+    int getDetectionFlag() const { return detectionFlagSent; }
 
     // Max-bin SNR (strongest single bin vs noise)
+    float getPeakAboveNoiseMeanDb() const { return peakAboveNoiseMeanDb; }
     float getMaxBinSnrDb()    const { return maxBinSnrDb; }
     float getMaxBinSnrSigma() const { return maxBinSnrSigma; }
 
@@ -75,20 +76,23 @@ private:
     int   peakConfirmed           = 0;
     float detectionThresholdSigma = 4.0f;  // SNR threshold in σ units
 
-    // signalStrengthIndex: max over a rolling buffer of N frames (remanance)
-    std::vector<int> signalStrengthIndexBuffer;
-    int signalStrengthIndexRemanance   = 3;
-    int indexsignalStrengthIndexBuffer = 0;
+    // detectionFlag: max over a rolling buffer of N frames (remanance)
+    std::vector<int> detectionFlagBuffer;
+    int detectionFlagRemanance   = 3;
+    int indexdetectionFlagBuffer = 0;
 
     // Output variables
     std::vector<float> power_shifted_vec;
-    // peakDb         → mean-window SNR in dB  (mean focus power − noise mean) — UI display
-    // peakNormalized → mean-window SNR in σ   (snrDb / noiseσ) — state machine / bars
-    float peakDb             = 0.0f;
-    float peakNormalized     = 0.0f;
-    int   signalStrengthIndexSent = 0;
+    // meanSnrDb    → mean-window SNR in dB  (mean focus power − noise mean) — UI display
+    // meanSnrSigma → mean-window SNR in σ   (meanSnrDb / noiseσ) — state machine
+    float meanSnrDb          = 0.0f;
+    float meanSnrSigma       = 0.0f;
+    int   detectionFlagSent = 0;
 
-    // Max-bin SNR outputs (strongest single FFT bin vs noise reference)
+    // Peak-above-noise-mean: max bin in focus window − per-bin noise mean (dB, raw, no Gumbel)
+    float peakAboveNoiseMeanDb = 0.0f;
+
+    // Max-bin SNR outputs (strongest single FFT bin vs noise reference, Gumbel-corrected)
     float maxBinSnrDb    = 0.0f;
     float maxBinSnrSigma = 0.0f;
 
