@@ -22,6 +22,7 @@
 #include "ssb/ssb_demod_opt.h" // For processSSB_opt
 #include "ssb/ssb_processor.h" // For SSBProcessor
 #include "dsp/fft_process.h" // For FFTProcessor
+#include "dsp/spectral_pulse_detector.h" // For SpectralPulseDetector
 #include "sdr-bridge-internal.h"
 
 template <typename Range, typename T>
@@ -76,6 +77,8 @@ namespace {
     jmethodID maxBinCallbackMethod = nullptr;
     jobject best1kHzCallbackObj = nullptr;
     jmethodID best1kHzCallbackMethod = nullptr;
+    jobject spectralPulseCallbackObj = nullptr;
+    jmethodID spectralPulseCallbackMethod = nullptr;
 
     // Global JNI object for passing float arrays back to Java/Kotlin
     jfloatArray result = nullptr;
@@ -95,6 +98,9 @@ namespace {
 
     // FFT Processor instance
     FFTProcessor fftProcessor;
+
+    // Spectral pulse detector instance
+    SpectralPulseDetector spectralPulseDetector;
 
     // SSB Processor instance
     SSBProcessor ssbProcessor;
@@ -465,6 +471,19 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     if (maxBinCallbackObj  != nullptr) env->CallVoidMethod(maxBinCallbackObj,   maxBinCallbackMethod,   maxBinSnrDb,    maxBinSnrSigma);
     if (best1kHzCallbackObj != nullptr) env->CallVoidMethod(best1kHzCallbackObj, best1kHzCallbackMethod, best1kHzSnrDb, best1kHzSnrSigma);
 
+    {
+        const float best1kFreqHz = fftProcessor.getBest1kHzCenterFreqHz();
+        spectralPulseDetector.process(best1kHzSnrSigma, best1kFreqHz);
+        if (spectralPulseCallbackObj != nullptr) {
+            const jlong estFreqHz = static_cast<jlong>(
+                std::llround(spectralPulseDetector.estimatedFreqHz()));
+            env->CallVoidMethod(spectralPulseCallbackObj, spectralPulseCallbackMethod,
+                                static_cast<jfloat>(best1kHzSnrSigma),
+                                static_cast<jint>(spectralPulseDetector.liveEtat()),
+                                estFreqHz);
+        }
+    }
+
     if (didAttach) {
         sdr_bridge_internal::gJavaVM->DetachCurrentThread();
     }
@@ -612,7 +631,8 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         jobject audioPulseCallback,
         jobject peakAboveNoiseMeanCallback,
         jobject maxBinCallback,
-        jobject best1kHzCallback) {
+        jobject best1kHzCallback,
+        jobject spectralPulseCallback) {
 
     if (sdrDevice == nullptr) {
         LOGD("Device not initialized");
@@ -659,6 +679,10 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     best1kHzCallbackObj = env->NewGlobalRef(best1kHzCallback);
     jclass best1kHzClass = env->GetObjectClass(best1kHzCallback);
     best1kHzCallbackMethod = env->GetMethodID(best1kHzClass, "invoke", "(FF)V");
+
+    spectralPulseCallbackObj = env->NewGlobalRef(spectralPulseCallback);
+    jclass spectralPulseClass = env->GetObjectClass(spectralPulseCallback);
+    spectralPulseCallbackMethod = env->GetMethodID(spectralPulseClass, "invoke", "(FIJ)V");
 
     //THREAD for SSB PART
     // Start SSB worker thread using SSBProcessor
@@ -826,6 +850,10 @@ Java_fr_intuite_sdr_bridge_SDRBridge_close(JNIEnv *env, jobject obj) {
     if (best1kHzCallbackObj != nullptr) {
         env->DeleteGlobalRef(best1kHzCallbackObj);
         best1kHzCallbackObj = nullptr;
+    }
+    if (spectralPulseCallbackObj != nullptr) {
+        env->DeleteGlobalRef(spectralPulseCallbackObj);
+        spectralPulseCallbackObj = nullptr;
     }
     if (result != nullptr) {
         env->DeleteGlobalRef(result);
@@ -1071,8 +1099,17 @@ Java_fr_intuite_sdr_bridge_SDRBridge_applyConfig(
     fftConfig.sampleRate = sampleRate;
     fftConfig.samplesPerReading = samplesPerReading;
     fftConfig.freqFocusRangeKhz = freqFocusRangeKhz;
-    // Add other relevant configuration parameters here if needed by FFTProcessor
     fftProcessor.configure(fftConfig);
+
+    // Configure the SpectralPulseDetector with the actual FFT frame rate
+    {
+        const float fsEnergy = (samplesPerReading > 0)
+            ? static_cast<float>(sampleRate) / static_cast<float>(samplesPerReading)
+            : 20.f;
+        SpectralPulseDetector::Config spCfg;
+        spCfg.fsEnergy = fsEnergy;
+        spectralPulseDetector.configure(spCfg);
+    }
 
     return true;
 }

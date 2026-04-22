@@ -148,7 +148,8 @@ object SDRBridge  {
         audioPulseCallback: (Float, Int) -> Unit,
         peakAboveNoiseMeanCallback: (Float) -> Unit,
         maxBinCallback: (Float, Float) -> Unit,
-        best1kHzCallback: (Float, Float) -> Unit
+        best1kHzCallback: (Float, Float) -> Unit,
+        spectralPulseCallback: (Float, Int, Long) -> Unit
     )
 
     external fun stopReading()

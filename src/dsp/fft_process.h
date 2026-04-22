@@ -47,8 +47,9 @@ public:
     float getMaxBinSnrSigma() const { return maxBinSnrSigma; }
 
     // Best 1 kHz band SNR (mean over best 1 kHz sub-window vs noise)
-    float getBest1kHzSnrDb()    const { return best1kHzSnrDb; }
-    float getBest1kHzSnrSigma() const { return best1kHzSnrSigma; }
+    float getBest1kHzSnrDb()       const { return best1kHzSnrDb; }
+    float getBest1kHzSnrSigma()    const { return best1kHzSnrSigma; }
+    float getBest1kHzCenterFreqHz() const { return best1kHzCenterFreqHz; }
 
 private:
     // Configuration parameters
@@ -97,8 +98,9 @@ private:
     float maxBinSnrSigma = 0.0f;
 
     // Best 1 kHz band SNR outputs (mean over the best 1 kHz sub-window vs noise)
-    float best1kHzSnrDb    = 0.0f;
-    float best1kHzSnrSigma = 0.0f;
+    float best1kHzSnrDb       = 0.0f;
+    float best1kHzSnrSigma    = 0.0f;
+    float best1kHzCenterFreqHz = 0.0f;  // absolute Hz of the best-1kHz window centre
 
     // Helper functions (private)
     void computePowerSpectrum(fftwf_complex *fft_signal, uint32_t sampCount, float* power_out);

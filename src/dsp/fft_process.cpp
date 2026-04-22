@@ -303,6 +303,23 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
                 const float focusBest1kDb = 10.0f * log10f(focusBest1kLinear / refPower + 1e-20f);
                 best1kHzSnrDb    = focusBest1kDb - mean1k;
                 best1kHzSnrSigma = best1kHzSnrDb / sigma1k;
+
+                // Find start bin of the winning 1-kHz window in the focus band
+                {
+                    const int len = focusHi - focusLo + 1;
+                    int bestStart = focusLo;
+                    if (len >= winBins1k) {
+                        float rs = 0.f;
+                        for (int i = focusLo; i < focusLo + winBins1k; i++) rs += power_shifted[i];
+                        float bv = rs;
+                        for (int s = focusLo + 1; s + winBins1k - 1 <= focusHi; s++) {
+                            rs += power_shifted[s + winBins1k - 1] - power_shifted[s - 1];
+                            if (rs > bv) { bv = rs; bestStart = s; }
+                        }
+                    }
+                    best1kHzCenterFreqHz = (bestStart + winBins1k / 2) * freqPerBin
+                                          + (static_cast<float>(centerFrequency) - nyquist);
+                }
             } else {
                 best1kHzSnrDb = best1kHzSnrSigma = 0.0f;
             }
