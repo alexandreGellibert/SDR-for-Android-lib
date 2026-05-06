@@ -885,6 +885,15 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setFrequency(JNIEnv *env, jobject obj, jlon
         );
 
         LOGD("New Frequency %lld Hz", frequency);
+
+        BridgeConfig &cfg = BridgeConfig::getInstance();
+        FftProcessorConfig fftConfig;
+        fftConfig.centerFrequency   = static_cast<uint32_t>(frequency);
+        fftConfig.sampleRate        = cfg.getSampleRate();
+        fftConfig.samplesPerReading = cfg.getSamplesPerReading();
+        fftConfig.freqFocusRangeKhz = cfg.getFreqFocusRangeKhz();
+        fftProcessor.configure(fftConfig);
+
         sdr_bridge_internal::isCenterFrequencyChanged = true;
     }
     catch (const std::exception &e) {
@@ -1008,8 +1017,17 @@ Java_fr_intuite_sdr_bridge_SDRBridge_setSamplesPerReading(JNIEnv *env, jobject o
 extern "C" JNIEXPORT void JNICALL
 Java_fr_intuite_sdr_bridge_SDRBridge_setFrequencyFocusRange(JNIEnv *env, jobject obj, jint frequencyFocusRange) {
     isUpdatingConfiguration = true;
-    BridgeConfig::getInstance().setFreqFocusRangeKhz(frequencyFocusRange);
-    LOGD("New Frequency Focus Range %ld", frequencyFocusRange);
+    BridgeConfig &cfg = BridgeConfig::getInstance();
+    cfg.setFreqFocusRangeKhz(frequencyFocusRange);
+
+    FftProcessorConfig fftConfig;
+    fftConfig.centerFrequency   = cfg.getCenterFrequency();
+    fftConfig.sampleRate        = cfg.getSampleRate();
+    fftConfig.samplesPerReading = cfg.getSamplesPerReading();
+    fftConfig.freqFocusRangeKhz = frequencyFocusRange;
+    fftProcessor.configure(fftConfig);
+
+    LOGD("New Frequency Focus Range %d kHz", frequencyFocusRange);
     isUpdatingConfiguration = false;
 }
 
