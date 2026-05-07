@@ -79,6 +79,8 @@ namespace {
     jmethodID best1kHzCallbackMethod = nullptr;
     jobject spectralPulseCallbackObj = nullptr;
     jmethodID spectralPulseCallbackMethod = nullptr;
+    jobject noiseLevelCallbackObj = nullptr;
+    jmethodID noiseLevelCallbackMethod = nullptr;
 
     // Global JNI object for passing float arrays back to Java/Kotlin
     jfloatArray result = nullptr;
@@ -470,6 +472,7 @@ void soapyCallback(std::complex<float> *buf, uint32_t len) {
     if (peakAboveNoiseMeanCallbackObj != nullptr) env->CallVoidMethod(peakAboveNoiseMeanCallbackObj, peakAboveNoiseMeanCallbackMethod, peakAboveNoiseMeanDb);
     if (maxBinCallbackObj  != nullptr) env->CallVoidMethod(maxBinCallbackObj,   maxBinCallbackMethod,   maxBinSnrDb,    maxBinSnrSigma);
     if (best1kHzCallbackObj != nullptr) env->CallVoidMethod(best1kHzCallbackObj, best1kHzCallbackMethod, best1kHzSnrDb, best1kHzSnrSigma);
+    if (noiseLevelCallbackObj != nullptr) env->CallVoidMethod(noiseLevelCallbackObj, noiseLevelCallbackMethod, fftProcessor.getPerBinMean());
 
     {
         const float best1kFreqHz = fftProcessor.getBest1kHzCenterFreqHz();
@@ -632,7 +635,8 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
         jobject peakAboveNoiseMeanCallback,
         jobject maxBinCallback,
         jobject best1kHzCallback,
-        jobject spectralPulseCallback) {
+        jobject spectralPulseCallback,
+        jobject noiseLevelCallback) {
 
     if (sdrDevice == nullptr) {
         LOGD("Device not initialized");
@@ -683,6 +687,10 @@ Java_fr_intuite_sdr_bridge_SDRBridge_read(
     spectralPulseCallbackObj = env->NewGlobalRef(spectralPulseCallback);
     jclass spectralPulseClass = env->GetObjectClass(spectralPulseCallback);
     spectralPulseCallbackMethod = env->GetMethodID(spectralPulseClass, "invoke", "(FIJ)V");
+
+    noiseLevelCallbackObj = env->NewGlobalRef(noiseLevelCallback);
+    jclass noiseLevelCallbackClass = env->GetObjectClass(noiseLevelCallback);
+    noiseLevelCallbackMethod = env->GetMethodID(noiseLevelCallbackClass, "invoke", "(F)V");
 
     //THREAD for SSB PART
     // Start SSB worker thread using SSBProcessor

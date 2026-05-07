@@ -51,6 +51,9 @@ public:
     float getBest1kHzSnrSigma()    const { return best1kHzSnrSigma; }
     float getBest1kHzCenterFreqHz() const { return best1kHzCenterFreqHz; }
 
+    // Per-bin noise mean (dBFS): mean dB level of the quiet reference windows
+    float getPerBinMean() const { return perBinMean; }
+
 private:
     // Configuration parameters
     FftProcessorConfig config_;
@@ -101,6 +104,9 @@ private:
     float best1kHzSnrDb       = 0.0f;
     float best1kHzSnrSigma    = 0.0f;
     float best1kHzCenterFreqHz = 0.0f;  // absolute Hz of the best-1kHz window centre
+
+    // Per-bin noise mean (dBFS): mean dB of pooled quiet-window bins
+    float perBinMean = 0.0f;
 
     // Helper functions (private)
     void computePowerSpectrum(fftwf_complex *fft_signal, uint32_t sampCount, float* power_out);

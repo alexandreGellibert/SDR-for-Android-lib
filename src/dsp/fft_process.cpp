@@ -260,6 +260,7 @@ void FFTProcessor::evaluateSignalStrength(uint32_t sampCount, const float* power
         if (!pooledBinDb.empty()) {
             for (float v : pooledBinDb) perBinMean += v;
             perBinMean /= static_cast<float>(pooledBinDb.size());
+            this->perBinMean = perBinMean;
             std::vector<float> gaps(pooledBinDb.size());
             for (size_t i = 0; i < pooledBinDb.size(); i++)
                 gaps[i] = std::fabs(pooledBinDb[i] - perBinMean);
