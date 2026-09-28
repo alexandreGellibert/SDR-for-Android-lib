@@ -309,5 +309,11 @@
     "productId": "0x6089",
     "name": "HackRF One",
     "driver": "hackrf"
+  },
+  {
+    "vendorId": "0x1df7",
+    "productId": "0x2500",
+    "name": "SDRplay RSP1 / MSi2500 clone",
+    "driver": "mirisdr"
   }
 ]

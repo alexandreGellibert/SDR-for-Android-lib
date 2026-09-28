@@ -12,7 +12,9 @@ enum class Driver(val key: String) {
     RTLSDR("rtlsdr"),
     LIME("lime"),
     AIRSPY("airspy"),
-    AIRSPYHF("airspyhf");
+    AIRSPYHF("airspyhf"),
+    HACKRF("hackrf"),
+    MIRISDR("mirisdr");
 
     companion object {
         fun fromString(key: String?): Driver =

@@ -34,3 +34,9 @@
 [submodule "third_party/SoapyHackRF"]
 	path = third_party/SoapyHackRF
 	url = https://github.com/alexandreGellibert/SoapyHackRF_ForAndroid.git
+[submodule "third_party/libmirisdr"]
+	path = third_party/libmirisdr
+	url = https://github.com/alexandreGellibert/libmirisdr_ForAndroid.git
+[submodule "third_party/SoapyMiri"]
+	path = third_party/SoapyMiri
+	url = https://github.com/alexandreGellibert/SoapyMiri_ForAndroid.git

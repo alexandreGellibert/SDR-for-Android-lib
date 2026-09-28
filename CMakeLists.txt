@@ -52,6 +52,8 @@ add_subdirectory(third_party/libairspy)
 add_subdirectory(third_party/airspyhf)
 # HackRF
 add_subdirectory(third_party/hackrf)
+# LibMiriSDR (Mirics MSi001/MSi2500, e.g. SDRplay RSP1 and clones)
+add_subdirectory(third_party/libmirisdr)
 
 # =======================
 # SoapySDR
@@ -61,6 +63,7 @@ add_subdirectory(third_party/SoapyRTLSDR)
 add_subdirectory(third_party/SoapyAirspy)
 add_subdirectory(third_party/SoapyAirspyHF)
 add_subdirectory(third_party/SoapyHackRF)
+add_subdirectory(third_party/SoapyMiri)
 
 # LimeSuite
 add_subdirectory(third_party/LimeSuite)
