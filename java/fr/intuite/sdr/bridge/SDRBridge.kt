@@ -49,9 +49,20 @@ object SDRBridge  {
     private var logListener: LogListener? = null
     private var compatibleDevices: List<DeviceCategory> = emptyList()
 
+    // False when the native library couldn't be loaded (typically a corrupted install/update).
+    // Callers must check this before using any native method.
+    @Volatile
+    var isNativeLibraryLoaded: Boolean = false
+        private set
+
     init {
-        System.loadLibrary("sdr-bridge-java-soapy-lib")
-        loadCompatibleDevices()
+        try {
+            System.loadLibrary("sdr-bridge-java-soapy-lib")
+            isNativeLibraryLoaded = true
+            loadCompatibleDevices()
+        } catch (e: UnsatisfiedLinkError) {
+            android.util.Log.e("RtlSdrBridge", "Failed to load native library", e)
+        }
     }
 
     // Set the LogListener
